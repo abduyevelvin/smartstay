@@ -101,39 +101,64 @@ smartstay/
 
 ### Steps
 
-- [ ] 1.1 Create `auth-service/` Maven module
+- [x] 1.1 Create `auth-service/` Maven module
   - Dependencies: `spring-boot-starter-web`, `spring-boot-starter-security`,
     `spring-boot-starter-data-jpa`, `postgresql`, `jjwt-api`, `jjwt-impl`,
     `jjwt-jackson`, `lombok`, `spring-boot-starter-validation`
-- [ ] 1.2 Create `User` entity
+- [x] 1.2 Create `User` entity
   ```
   id (UUID), email, password (bcrypt), firstName, lastName,
   role (GUEST | HOTEL_MANAGER | ADMIN), createdAt, active
   ```
-- [ ] 1.3 Create `RefreshToken` entity
+  - Uses `BaseEntity` (`@MappedSuperclass`) for `id`, `createdAt`, `updatedAt`
+  - `OffsetDateTime` for timestamps, Spring Data auditing via `JpaConfig`
+- [x] 1.3 Create `RefreshToken` entity
   ```
   id (UUID), token, userId (FK), expiresAt, revoked
   ```
-- [ ] 1.4 Implement `UserRepository` (JPA)
-- [ ] 1.5 Implement `JwtService`
+  - Extends `BaseEntity`, `@ManyToOne` FK to `UserEntity`
+- [x] 1.4 Implement `UserRepository` (JPA)
+  - `findByEmail`, `existsByEmail`
+  - `RefreshTokenRepository`: `findByToken`, `deleteAllByUser`
+- [x] 1.5 Implement `JwtService`
   - `generateAccessToken(user)` → expires 15 min
   - `generateRefreshToken(user)` → expires 7 days, stored in DB
   - `validateToken(token)` → returns claims
   - Load RS256 private/public keys from classpath
-- [ ] 1.6 Implement `AuthService`
+  - Keys loaded via `ResourceLoader` at `@PostConstruct`
+  - `extractEmail`, `extractUserId`, `extractRole` helpers included
+  - `SecurityProperties` holds key paths + expiry values
+  - ⚠️ `scripts/generate-certs.sh` fixed: switched from `openssl genrsa` (PKCS#1)
+    to `openssl genpkey` (PKCS#8) — required by Java `PKCS8EncodedKeySpec`
+- [x] 1.6 Implement `AuthService`
   - `register(RegisterRequest)` → hash password, save user, return tokens
   - `login(LoginRequest)` → verify password, return tokens
   - `refresh(refreshToken)` → validate, revoke old, issue new pair
   - `logout(refreshToken)` → revoke token
-- [ ] 1.7 Create `AuthController` (`/api/v1/auth`)
-  - `POST /register`
-  - `POST /login`
-  - `POST /refresh`
-  - `POST /logout`
-- [ ] 1.8 Configure Spring Security — permit `/api/v1/auth/**`, lock everything else
-- [ ] 1.9 Add `GlobalExceptionHandler` (`@RestControllerAdvice`)
-  - Handle `UsernameNotFoundException`, `BadCredentialsException`, validation errors
-- [ ] 1.10 Write integration tests (Testcontainers + PostgreSQL)
+  - `PasswordEncoder` bean in `AppConfig` (not in `SecurityConfig` — avoids circular dep)
+  - Login uses same `BadCredentialsException` for all failures (prevents user enumeration)
+  - `active` check on login — deactivated users rejected with same generic error
+  - All methods have structured logs (INFO on success, WARN on failure)
+- [x] 1.7 Create `AuthController` (`/api/v1/auth`)
+  - `POST /register` → 201, `POST /login` → 200, `POST /refresh` → 200, `POST /logout` → 204
+- [x] 1.8 Configure Spring Security — permit `/api/v1/auth/**` + `/actuator/health`, lock everything else
+  - CSRF disabled (stateless JWT API), `SessionCreationPolicy.STATELESS`
+- [x] 1.9 Add `GlobalExceptionHandler` (`@RestControllerAdvice`)
+  - `ResourceExistsException` → 409, `ResourceNotFoundException` → 404
+  - `BadCredentialsException` → 401, `MethodArgumentNotValidException` → 400
+  - `HttpMessageNotReadableException` → 400 (invalid enum values, malformed JSON)
+  - `Exception` → 500 (catch-all with full stack trace log)
+  - Consistent `ErrorResponse` record: `timestamp, status, error, message, path`
+- [x] 1.11 Flyway migration scripts
+  - `V1__init.sql` — creates `users` and `refresh_tokens` tables
+  - Indexes: `idx_users_email`, `idx_refresh_tokens_token`, `idx_refresh_tokens_user_id`
+  - `ON DELETE CASCADE` on `refresh_tokens.user_id` — deletes tokens when user deleted
+  - ⚠️ Each future service that adds DB changes needs a new versioned migration (V2, V3, ...)
+- [x] 1.10 Write integration tests (Testcontainers + PostgreSQL) + unit tests
+  - `JwtServiceTest` — token generation, validation, expiry, tamper detection, claim extraction
+  - `AuthServiceTest` — all 4 methods with mocked deps, 12 test cases
+  - `AuthControllerIT` — full stack with Testcontainers PostgreSQL, RSA keys generated at runtime
+  - `application-test.yml` — Flyway disabled, `ddl-auto: create-drop` for test profile
 
 ### DTOs
 ```java
@@ -155,7 +180,7 @@ auth-service/src/main/java/com/smartstay/auth/
   controller/AuthController.java
   security/SecurityConfig.java
   exception/GlobalExceptionHandler.java
-  dto/...
+  entity/...
 ```
 
 ---
@@ -273,7 +298,7 @@ hotel-service/src/main/java/com/smartstay/hotel/
   repository/RoomRepository.java
   service/HotelService.java
   controller/HotelController.java
-  dto/...
+  entity/...
 ```
 
 ---
@@ -337,7 +362,7 @@ booking-service/src/main/java/com/smartstay/booking/
   controller/BookingController.java
   client/HotelServiceClient.java
   event/BookingEventProducer.java
-  dto/...
+  entity/...
 ```
 
 ---
@@ -401,7 +426,7 @@ ai-assistant-service/src/main/java/com/smartstay/ai/
   controller/AiController.java
   config/AiConfig.java           ← ChatClient bean, VectorStore bean
   config/ChatMemoryConfig.java
-  dto/...
+  entity/...
 ```
 
 ---

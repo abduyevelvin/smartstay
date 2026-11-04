@@ -36,7 +36,7 @@
         <jjwt.version>0.12.6</jjwt.version>
         <lombok.version>1.18.36</lombok.version>
         <mapstruct.version>1.6.3</mapstruct.version>
-        <testcontainers.version>1.20.4</testcontainers.version>
+        <testcontainers.version>1.21.4</testcontainers.version>
     </properties>
 
     <parent>
@@ -135,6 +135,24 @@
                                 <artifactId>lombok</artifactId>
                             </exclude>
                         </excludes>
+                    </configuration>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-surefire-plugin</artifactId>
+                    <configuration>
+                        <!-- Testcontainers on Windows (Rancher Desktop):
+                             1. DOCKER_HOST – named pipe; not auto-discovered from JVM subprocess
+                             2. DOCKER_API_VERSION – docker-java 3.4.x defaults to 1.32;
+                                Rancher Desktop rejects anything below 1.41 with HTTP 400.
+                             Both are read via System.getProperties() in createDefaultConfigBuilder(). -->
+                        <environmentVariables>
+                            <DOCKER_HOST>npipe:////./pipe/docker_engine</DOCKER_HOST>
+                        </environmentVariables>
+                        <systemPropertyVariables>
+                            <DOCKER_HOST>npipe:////./pipe/docker_engine</DOCKER_HOST>
+                            <DOCKER_API_VERSION>1.45</DOCKER_API_VERSION>
+                        </systemPropertyVariables>
                     </configuration>
                 </plugin>
                 <plugin>

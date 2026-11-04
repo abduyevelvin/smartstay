@@ -1,0 +1,15 @@
+spring:
+  flyway:
+    enabled: false        # Testcontainers uses ddl-auto instead
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    properties:
+      hibernate:
+        format_sql: false
+
+app:
+  security:
+    access-token-expiry: 900
+    refresh-token-expiry: 604800
+    # private-key-path and public-key-path are set via @DynamicPropertySource in IT tests

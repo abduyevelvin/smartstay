@@ -9,13 +9,14 @@ set -e
 CERTS_DIR="$(dirname "$0")/../certs"
 mkdir -p "$CERTS_DIR"
 
-echo "Generating RSA 2048-bit keypair..."
+echo "Generating RSA 2048-bit keypair (PKCS8)..."
 
-# Generate private key
-openssl genrsa -out "$CERTS_DIR/private.pem" 2048
+# Generate private key directly in PKCS8 format (required by Java KeyFactory / PKCS8EncodedKeySpec)
+# Header will be: -----BEGIN PRIVATE KEY-----  (NOT "RSA PRIVATE KEY")
+openssl genpkey -algorithm RSA -out "$CERTS_DIR/private.pem" -pkeyopt rsa_keygen_bits:2048
 
-# Extract public key
-openssl rsa -in "$CERTS_DIR/private.pem" -pubout -out "$CERTS_DIR/public.pem"
+# Extract public key (X.509 format, required by Java X509EncodedKeySpec)
+openssl pkey -in "$CERTS_DIR/private.pem" -pubout -out "$CERTS_DIR/public.pem"
 
 echo "Done! Keys written to:"
 echo "  Private key: $CERTS_DIR/private.pem"
