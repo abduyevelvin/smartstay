@@ -1,0 +1,322 @@
+version: '3.9'
+
+# ─────────────────────────────────────────────
+#  SmartStay – Docker Compose
+#  Usage: make up  (or docker compose up -d)
+# ─────────────────────────────────────────────
+
+networks:
+  smartstay-network:
+    driver: bridge
+
+volumes:
+  postgres-auth-data:
+  postgres-booking-data:
+  postgres-vector-data:
+  mongodb-data:
+  redis-data:
+  kafka-data:
+
+services:
+
+  # ── PostgreSQL: Auth Service ───────────────
+  postgres-auth:
+    image: postgres:16-alpine
+    container_name: smartstay-postgres-auth
+    environment:
+      POSTGRES_DB: auth_db
+      POSTGRES_USER: ${POSTGRES_AUTH_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_AUTH_PASSWORD}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-auth-data:/var/lib/postgresql/data
+    networks:
+      - smartstay-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_AUTH_USER} -d auth_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── PostgreSQL: Booking Service ────────────
+  postgres-booking:
+    image: postgres:16-alpine
+    container_name: smartstay-postgres-booking
+    environment:
+      POSTGRES_DB: booking_db
+      POSTGRES_USER: ${POSTGRES_BOOKING_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_BOOKING_PASSWORD}
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres-booking-data:/var/lib/postgresql/data
+    networks:
+      - smartstay-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_BOOKING_USER} -d booking_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── PostgreSQL: pgvector (AI embeddings) ───
+  postgres-vector:
+    image: pgvector/pgvector:pg16
+    container_name: smartstay-postgres-vector
+    environment:
+      POSTGRES_DB: vector_db
+      POSTGRES_USER: ${POSTGRES_VECTOR_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_VECTOR_PASSWORD}
+    ports:
+      - "5434:5432"
+    volumes:
+      - postgres-vector-data:/var/lib/postgresql/data
+      - ./infra/init-vector.sql:/docker-entrypoint-initdb.d/init-vector.sql
+    networks:
+      - smartstay-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_VECTOR_USER} -d vector_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── MongoDB: Hotel + Review Services ───────
+  mongodb:
+    image: mongo:7.0
+    container_name: smartstay-mongodb
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+      MONGO_INITDB_DATABASE: smartstay
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb-data:/data/db
+      - ./infra/init-mongo.js:/docker-entrypoint-initdb.d/init-mongo.js
+    networks:
+      - smartstay-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Redis: Gateway rate limiting + cache ───
+  redis:
+    image: redis:7.2-alpine
+    container_name: smartstay-redis
+    command: redis-server --requirepass ${REDIS_PASSWORD}
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - smartstay-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Zookeeper (Kafka dependency) ───────────
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.7.1
+    container_name: smartstay-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - smartstay-network
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "2181"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Kafka ──────────────────────────────────
+  kafka:
+    image: confluentinc/cp-kafka:7.7.1
+    container_name: smartstay-kafka
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+    ports:
+      - "29092:29092"   # host access (for local dev without Docker)
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    networks:
+      - smartstay-network
+    healthcheck:
+      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:9092", "--list"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
+  # ── Kafka UI (dev convenience) ─────────────
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: smartstay-kafka-ui
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+    ports:
+      - "9093:8080"
+    networks:
+      - smartstay-network
+
+  # ══════════════════════════════════════════
+  #  Application Services
+  # ══════════════════════════════════════════
+
+  # ── API Gateway ────────────────────────────
+  api-gateway:
+    build:
+      context: .
+      dockerfile: api-gateway/Dockerfile
+    container_name: smartstay-api-gateway
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      JWT_PUBLIC_KEY_PATH: /certs/public.pem
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./certs:/certs:ro
+    networks:
+      - smartstay-network
+
+  # ── Auth Service ───────────────────────────
+  auth-service:
+    build:
+      context: .
+      dockerfile: auth-service/Dockerfile
+    container_name: smartstay-auth-service
+    depends_on:
+      postgres-auth:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      POSTGRES_AUTH_USER: ${POSTGRES_AUTH_USER}
+      POSTGRES_AUTH_PASSWORD: ${POSTGRES_AUTH_PASSWORD}
+      JWT_PRIVATE_KEY_PATH: /certs/private.pem
+      JWT_PUBLIC_KEY_PATH: /certs/public.pem
+    ports:
+      - "8081:8081"
+    volumes:
+      - ./certs:/certs:ro
+    networks:
+      - smartstay-network
+
+  # ── Hotel Service ──────────────────────────
+  hotel-service:
+    build:
+      context: .
+      dockerfile: hotel-service/Dockerfile
+    container_name: smartstay-hotel-service
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      MONGO_ROOT_USER: ${MONGO_ROOT_USER}
+      MONGO_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+    ports:
+      - "8082:8082"
+    networks:
+      - smartstay-network
+
+  # ── Booking Service ────────────────────────
+  booking-service:
+    build:
+      context: .
+      dockerfile: booking-service/Dockerfile
+    container_name: smartstay-booking-service
+    depends_on:
+      postgres-booking:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      POSTGRES_BOOKING_USER: ${POSTGRES_BOOKING_USER}
+      POSTGRES_BOOKING_PASSWORD: ${POSTGRES_BOOKING_PASSWORD}
+    ports:
+      - "8083:8083"
+    networks:
+      - smartstay-network
+
+  # ── Review Service ─────────────────────────
+  review-service:
+    build:
+      context: .
+      dockerfile: review-service/Dockerfile
+    container_name: smartstay-review-service
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      MONGO_ROOT_USER: ${MONGO_ROOT_USER}
+      MONGO_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+    ports:
+      - "8084:8084"
+    networks:
+      - smartstay-network
+
+  # ── AI Assistant Service ───────────────────
+  ai-assistant-service:
+    build:
+      context: .
+      dockerfile: ai-assistant-service/Dockerfile
+    container_name: smartstay-ai-assistant
+    depends_on:
+      postgres-vector:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      POSTGRES_VECTOR_USER: ${POSTGRES_VECTOR_USER}
+      POSTGRES_VECTOR_PASSWORD: ${POSTGRES_VECTOR_PASSWORD}
+      SPRING_AI_OPENAI_API_KEY: ${SPRING_AI_OPENAI_API_KEY}
+    ports:
+      - "8085:8085"
+    networks:
+      - smartstay-network
+
+  # ── Notification Service ───────────────────
+  notification-service:
+    build:
+      context: .
+      dockerfile: notification-service/Dockerfile
+    container_name: smartstay-notification-service
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      MAIL_HOST: ${MAIL_HOST}
+      MAIL_PORT: ${MAIL_PORT}
+      MAIL_USERNAME: ${MAIL_USERNAME}
+      MAIL_PASSWORD: ${MAIL_PASSWORD}
+    ports:
+      - "8086:8086"
+    networks:
+      - smartstay-network

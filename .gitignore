@@ -1,0 +1,59 @@
+# ── Build output ───────────────────────────
+target/
+*.class
+*.jar
+*.war
+
+# ── Maven wrapper ──────────────────────────
+!.mvn/wrapper/maven-wrapper.jar
+
+# ── IDE ────────────────────────────────────
+.idea/
+*.iml
+.vscode/
+*.swp
+*.suo
+.project
+.classpath
+.settings/
+
+# ── Secrets & certs — NEVER COMMIT ────────
+.env
+.env.*
+!.env.example
+certs/
+*.pem
+*.p12
+*.jks
+*.key
+*.crt
+*.csr
+secrets/
+
+# ── OS ─────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+ehthumbs.db
+
+# ── Logs ───────────────────────────────────
+*.log
+logs/
+
+# ── Docker volumes & local data ────────────
+docker-volumes/
+data/
+
+# ── Runtime / temp ─────────────────────────
+*.pid
+*.tmp
+tmp/
+temp/
+
+# ── Test reports ───────────────────────────
+surefire-reports/
+failsafe-reports/
+
+# ── Claude / AI tooling ────────────────────
+.tokensave/
+.claude/
