@@ -325,58 +325,119 @@ hotel-service/src/main/java/com/smartstay/hotel/
 - Port: `8083`
 - DB: PostgreSQL (`postgres-booking`, database: `booking_db`)
 - Events: Publishes `booking.confirmed`, `booking.cancelled` to Kafka
-- Calls: Hotel Service (verify room exists)
+- Calls: Hotel Service (verify room exists and get price per night)
+- Auth: Trusts headers forwarded by gateway (`X-User-Id`, `X-User-Email`, `X-User-Role`)
 
 ### Steps
 
-- [ ] 4.1 Create `booking-service/` Maven module
+- [x] 4.1 Create `booking-service/` Maven module
   - Dependencies: `spring-boot-starter-web`, `spring-boot-starter-data-jpa`,
-    `postgresql`, `spring-kafka`, `openfeign`, `lombok`, `spring-boot-starter-validation`
-- [ ] 4.2 Create `Booking` entity
+    `postgresql`, `flyway-core`, `flyway-database-postgresql`,
+    `spring-kafka`, `spring-cloud-starter-openfeign`, `mapstruct`,
+    `lombok`, `spring-boot-starter-validation`, `spring-boot-starter-actuator`
+  - Test deps: `testcontainers` (junit-jupiter + postgresql), `spring-kafka-test`
+  - ⚠️ `spring-boot-starter-security` must also be added (needed for
+    `HeaderAuthenticationFilter` + `@PreAuthorize` in step 4.6)
+- [x] 4.2 Create `Booking` entity
   ```
-  id (UUID), guestId, guestEmail, hotelId, roomId,
+  id (UUID), guestId (UUID), guestEmail (String),
+  hotelId (String), roomId (String),      ← MongoDB ObjectId strings from hotel-service
   checkIn (LocalDate), checkOut (LocalDate),
-  totalPrice, status (PENDING|CONFIRMED|CANCELLED|COMPLETED),
-  specialRequests, createdAt, updatedAt
+  totalPrice (double), status (BookingStatus enum),
+  specialRequests (String), createdAt (OffsetDateTime), updatedAt (OffsetDateTime)
   ```
-- [ ] 4.3 Create `BookingRepository` (JPA)
-  - `findByGuestId(guestId)` — my bookings
-  - `findByHotelIdAndStatus(hotelId, status)` — manager view
-  - `findByRoomIdAndCheckInBetween(...)` — availability check
+  - Extends `BaseEntity` (`@MappedSuperclass`) for `id`, `createdAt`, `updatedAt`
+  - `OffsetDateTime` timestamps via Spring Data JPA auditing (`JpaConfig` needed in step 4.5)
+  - `hotelId` / `roomId` stored as `VARCHAR` — hotel-service uses MongoDB ObjectIds (not UUIDs)
+  - `status` uses `@Enumerated(EnumType.STRING)` with `BookingStatus` enum:
+    `PENDING | CONFIRMED | CANCELLED | COMPLETED`
+  - All fields annotated with `@Column(nullable = false)` constraints
+  - Supporting types created: `entity/BaseEntity.java`, `enums/BookingStatus.java`
+- [x] 4.3 Create `BookingRepository` (JPA)
+  - `findByGuestId(UUID guestId, Pageable)` → `Page<BookingEntity>` — paginated "my bookings"
+  - `findByHotelId(String hotelId)` → `List<BookingEntity>` — manager overview
+  - `findByHotelIdAndStatus(String hotelId, BookingStatus)` → `List<BookingEntity>` — filtered manager view
+  - `existsOverlappingBooking(roomId, checkIn, checkOut, cancelled)` → `boolean`
+    - Custom `@Query` with JPQL overlap logic: `checkIn < :checkOut AND checkOut > :checkIn AND status <> :cancelled`
+    - Replaces the incorrect `findByRoomIdAndCheckInBetween` (which only checked one boundary)
 - [ ] 4.4 Implement `HotelServiceClient` (Feign)
-  - Calls `hotel-service` to validate room exists and get price
+  - `getHotel(hotelId)` → `HotelSummary { id, name, city, country }` — for event payload (hotel name)
+  - `getRoom(hotelId, roomId)` → `RoomSummary { id, hotelId, roomNumber, pricePerNight, maxOccupancy, available }`
+  - URL configured via `feign.hotel-service.url` property (default: `http://hotel-service:8082`)
+  - ⚠️ Requires adding `GET /api/v1/hotels/{hotelId}/rooms/{roomId}` endpoint to hotel-service
+    (currently only `GET /{hotelId}/rooms` exists — returns all rooms)
 - [ ] 4.5 Implement `BookingService`
-  - `createBooking(request, guestId)`:
-    1. Validate room via Feign
-    2. Check no overlapping bookings
-    3. Calculate total price
-    4. Save as PENDING → CONFIRMED
-    5. Publish `booking.confirmed` to Kafka
-  - `cancelBooking(bookingId, userId)` — guest or manager
-  - `getMyBookings(guestId)` — paginated
-  - `getHotelBookings(hotelId, managerId)` — manager view
-  - `checkRoomAvailability(roomId, checkIn, checkOut)` — used by hotel-service
+  - Config needed first: `JpaConfig` (JPA auditing), `KafkaConfig` (topic declarations),
+    `SecurityConfig` + `HeaderAuthenticationFilter` (trust gateway headers)
+  - `createBooking(request, guestId, guestEmail)`:
+    1. Validate hotel + room via Feign (`getHotel`, `getRoom`)
+    2. Check no overlapping bookings via `existsOverlappingBooking` → throw `BookingConflictException` (409) if overlap
+    3. Calculate `totalPrice = room.pricePerNight * nights`
+    4. Save with status `CONFIRMED` (skip PENDING intermediate state for simplicity)
+    5. Publish `BookingConfirmedEvent` to Kafka
+  - `cancelBooking(bookingId, userId, userRole)` — guest cancels own booking; manager cancels any
+  - `getMyBookings(guestId, pageable)` — paginated
+  - `getHotelBookings(hotelId)` — manager view (all statuses)
+  - `checkRoomAvailability(roomId, checkIn, checkOut)` → `boolean`
+  - Exceptions: `ResourceNotFoundException` (404), `ForbiddenException` (403), `BookingConflictException` (409)
 - [ ] 4.6 Create `BookingController` (`/api/v1/bookings`)
-  - `POST /` — create booking
-  - `GET /my` — my bookings (guest)
-  - `GET /hotel/{hotelId}` — hotel bookings (manager)
-  - `PUT /{id}/cancel` — cancel
-  - `GET /availability?roomId=&checkIn=&checkOut=` — check availability
+  - `POST /` — create booking → 201 (`GUEST` only)
+  - `GET /my` — my bookings (guest, paginated)
+  - `GET /hotel/{hotelId}` — hotel bookings (`HOTEL_MANAGER` only)
+  - `PUT /{id}/cancel` — cancel booking → 200
+  - `GET /availability?roomId=&checkIn=&checkOut=` — check availability → 200 `{ available: bool }`
+  - `guestId` / `guestEmail` extracted from `X-User-Id` / `X-User-Email` headers (forwarded by gateway)
+  - Role guards via `@PreAuthorize` (requires `SecurityConfig` + `HeaderAuthenticationFilter`)
 - [ ] 4.7 Implement `BookingEventProducer` (Kafka)
   - Publishes `BookingConfirmedEvent { bookingId, guestEmail, hotelName, checkIn, checkOut }`
-  - Publishes `BookingCancelledEvent { ... }`
-- [ ] 4.8 Write integration tests (Testcontainers PostgreSQL + EmbeddedKafka)
+  - Publishes `BookingCancelledEvent { bookingId, guestEmail, hotelName, checkIn, checkOut }`
+  - Key: `bookingId.toString()` for partition locality
+  - Topics declared as `@Bean NewTopic` in `KafkaConfig`
+- [ ] 4.8 Flyway migration
+  - `V1__init.sql` — creates `bookings` table; indexes on `guest_id`, `room_id`, `hotel_id`
+- [ ] 4.9 `application.yml` + `application-docker.yml`
+  - Datasource: `postgres-booking:5433 / booking_db`
+  - Kafka bootstrap: `kafka:9092` (docker) / `localhost:29092` (local)
+  - Feign URL: `feign.hotel-service.url`
+  - Producer value serializer: `JsonSerializer`
+- [ ] 4.10 Write integration tests (Testcontainers PostgreSQL + `@EmbeddedKafka`)
+  - `BookingServiceTest` — unit tests with mocked Feign client + repository
+  - `BookingControllerIT` — full stack, Feign `@MockBean`, `@EmbeddedKafka`
 
 ### Key Files
 ```
 booking-service/src/main/java/com/smartstay/booking/
-  entity/Booking.java
-  repository/BookingRepository.java
-  service/BookingService.java
-  controller/BookingController.java
+  entity/BaseEntity.java          ✅ done
+  entity/BookingEntity.java       ✅ done
+  enums/BookingStatus.java        ✅ done
+  repository/BookingRepository.java ✅ done
+  config/JpaConfig.java
+  config/KafkaConfig.java
+  security/HeaderAuthenticationFilter.java
+  security/SecurityConfig.java
   client/HotelServiceClient.java
+  client/dto/HotelSummary.java
+  client/dto/RoomSummary.java
+  dto/CreateBookingRequest.java
+  dto/BookingResponse.java
+  dto/ErrorResponse.java
+  service/BookingService.java
+  service/BookingServiceImpl.java
+  controller/BookingController.java
+  event/BookingConfirmedEvent.java
+  event/BookingCancelledEvent.java
   event/BookingEventProducer.java
-  entity/...
+  exception/ResourceNotFoundException.java
+  exception/ForbiddenException.java
+  exception/BookingConflictException.java
+  exception/GlobalExceptionHandler.java
+  mapper/BookingMapper.java
+src/main/resources/
+  application.yml
+  application-docker.yml
+  db/migration/V1__init.sql
+src/test/resources/
+  application-test.yml
 ```
 
 ---
