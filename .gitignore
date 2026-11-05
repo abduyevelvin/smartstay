@@ -17,6 +17,10 @@ target/
 .classpath
 .settings/
 
+# ── Local AI tool configs ───────────────────
+.codex/
+.tokensave/
+
 # ── Secrets & certs — NEVER COMMIT ────────
 .env
 .env.*

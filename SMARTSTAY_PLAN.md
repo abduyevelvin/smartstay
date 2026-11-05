@@ -197,8 +197,8 @@ auth-service/src/main/java/com/smartstay/auth/
 
 ### Steps
 
-- [ ] 2.1 Create `api-gateway/` Maven module
-- [ ] 2.2 Configure `application.yml` routes:
+- [x] 2.1 Create `api-gateway/` Maven module
+- [x] 2.2 Configure `application.yml` routes:
   ```yaml
   routes:
     - id: auth-service
@@ -221,16 +221,16 @@ auth-service/src/main/java/com/smartstay/auth/
       predicates: Path=/api/v1/ai/**
       filters: [JwtAuthenticationFilter]
   ```
-- [ ] 2.3 Implement `JwtAuthenticationFilter` (GlobalFilter)
+- [x] 2.3 Implement `JwtAuthenticationFilter` (GlobalFilter)
   - Extract `Authorization: Bearer <token>` header
   - Validate JWT signature using **public key** (RS256)
   - Reject with `401` if missing/invalid/expired
   - Forward claims as headers to downstream: `X-User-Id`, `X-User-Email`, `X-User-Role`
-- [ ] 2.4 Add Redis-based `RequestRateLimiterGatewayFilterFactory`
+- [x] 2.4 Add Redis-based `RequestRateLimiterGatewayFilterFactory`
   - 100 req/min per IP for public routes
   - 300 req/min per user for authenticated routes
-- [ ] 2.5 Add CORS configuration (for future frontend)
-- [ ] 2.6 Add `CircuitBreaker` fallback (optional, Resilience4j)
+- [x] 2.5 Add CORS configuration (for future frontend)
+- [x] 2.6 Add `CircuitBreaker` fallback (optional, Resilience4j)
 
 ### Key Files
 ```

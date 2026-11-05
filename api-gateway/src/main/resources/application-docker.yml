@@ -1,0 +1,93 @@
+# ── Docker profile — overrides application.yml when SPRING_PROFILES_ACTIVE=docker ──
+# Service hostnames match docker-compose.yml service names.
+# Public key is read from the /certs volume mounted in docker-compose.yml.
+
+spring:
+  cloud:
+    gateway:
+      routes:
+
+        - id: auth-service
+          uri: http://auth-service:8081
+          predicates:
+            - Path=/api/v1/auth/**
+          filters:
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 1
+                redis-rate-limiter.burstCapacity: 20
+                key-resolver: "#{@ipKeyResolver}"
+            - name: CircuitBreaker
+              args:
+                name: auth-service-circuit
+                fallbackUri: forward:/fallback
+
+        - id: hotel-service
+          uri: http://hotel-service:8082
+          predicates:
+            - Path=/api/v1/hotels/**
+          filters:
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 5
+                redis-rate-limiter.burstCapacity: 60
+                key-resolver: "#{@userKeyResolver}"
+            - name: CircuitBreaker
+              args:
+                name: hotel-service-circuit
+                fallbackUri: forward:/fallback
+
+        - id: booking-service
+          uri: http://booking-service:8083
+          predicates:
+            - Path=/api/v1/bookings/**
+          filters:
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 5
+                redis-rate-limiter.burstCapacity: 60
+                key-resolver: "#{@userKeyResolver}"
+            - name: CircuitBreaker
+              args:
+                name: booking-service-circuit
+                fallbackUri: forward:/fallback
+
+        - id: review-service
+          uri: http://review-service:8084
+          predicates:
+            - Path=/api/v1/reviews/**
+          filters:
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 5
+                redis-rate-limiter.burstCapacity: 60
+                key-resolver: "#{@userKeyResolver}"
+            - name: CircuitBreaker
+              args:
+                name: review-service-circuit
+                fallbackUri: forward:/fallback
+
+        - id: ai-assistant-service
+          uri: http://ai-assistant-service:8085
+          predicates:
+            - Path=/api/v1/ai/**
+          filters:
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 5
+                redis-rate-limiter.burstCapacity: 60
+                key-resolver: "#{@userKeyResolver}"
+            - name: CircuitBreaker
+              args:
+                name: ai-assistant-service-circuit
+                fallbackUri: forward:/fallback
+
+  data:
+    redis:
+      host: redis          # docker-compose service name
+      port: 6379
+      password: ${REDIS_PASSWORD}
+
+app:
+  security:
+    public-key-path: file:/certs/public.pem   # mounted via volumes: ./certs:/certs:ro

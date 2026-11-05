@@ -1,0 +1,12 @@
+# ── Docker profile — overrides application.yml when SPRING_PROFILES_ACTIVE=docker ──
+# Hostname matches the docker-compose.yml service name for postgres-auth.
+# Keys are read from the /certs volume mounted in docker-compose.yml.
+
+spring:
+  datasource:
+    url: jdbc:postgresql://postgres-auth:5432/auth_db
+
+app:
+  security:
+    private-key-path: file:/certs/private.pem   # mounted via volumes: ./certs:/certs:ro
+    public-key-path: file:/certs/public.pem
