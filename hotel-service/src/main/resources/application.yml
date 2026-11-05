@@ -1,0 +1,23 @@
+spring:
+  application:
+    name: hotel-service
+  data:
+    mongodb:
+      host: localhost
+      port: 27017
+      database: hotel_db
+      username: ${MONGO_HOTEL_USER:smartstay_hotel}
+      password: ${MONGO_HOTEL_PASSWORD:change_me_hotel}
+      auto-index-creation: true
+
+server:
+  port: 8082
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always

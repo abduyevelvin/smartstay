@@ -1,0 +1,7 @@
+# ── Docker profile — overrides application.yml when SPRING_PROFILES_ACTIVE=docker ──
+# Hostname matches the docker-compose.yml service name for mongodb.
+
+spring:
+  data:
+    mongodb:
+      host: mongodb          # docker-compose service name

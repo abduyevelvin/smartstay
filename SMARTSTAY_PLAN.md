@@ -254,40 +254,54 @@ api-gateway/src/main/java/com/smartstay/gateway/
 
 ### Steps
 
-- [ ] 3.1 Create `hotel-service/` Maven module
+- [x] 3.1 Create `hotel-service/` Maven module
   - Dependencies: `spring-boot-starter-web`, `spring-boot-starter-data-mongodb`,
     `lombok`, `spring-boot-starter-validation`
-- [ ] 3.2 Create `Hotel` document
+- [x] 3.2 Create `Hotel` document (`document/HotelDocument.java`)
   ```
   id, name, description, city, country, address, starRating,
   amenities (List<String>), images (List<String>),
   managerId (from JWT header), averageRating, reviewCount,
   checkInTime, checkOutTime, policies (Map<String,String>)
   ```
-- [ ] 3.3 Create `Room` document (embedded in Hotel or separate collection)
+  - `@CompoundIndex(city + starRating)` for search queries
+- [x] 3.3 Create `Room` document (`document/RoomDocument.java`)
   ```
   id, hotelId, roomNumber, type (SINGLE|DOUBLE|SUITE|PENTHOUSE),
   pricePerNight, maxOccupancy, amenities, images,
   available (boolean), floor
   ```
-- [ ] 3.4 Implement `HotelRepository`, `RoomRepository` (Spring Data MongoDB)
-- [ ] 3.5 Implement `HotelService`
-  - `createHotel(request, managerId)`
-  - `updateHotel(id, request, managerId)` — only owner can update
-  - `searchHotels(city, checkIn, checkOut, guests, minStars)` — with pagination
-  - `getHotelById(id)`
-  - `addRoom(hotelId, roomRequest, managerId)`
-  - `checkAvailability(hotelId, checkIn, checkOut)` → calls Booking Service
-- [ ] 3.6 Create `HotelController` (`/api/v1/hotels`)
-  - `GET /` — search with filters
-  - `GET /{id}` — detail
-  - `POST /` — create (HOTEL_MANAGER only)
-  - `PUT /{id}` — update (owner only)
-  - `GET /{id}/rooms` — list rooms
-  - `POST /{id}/rooms` — add room (owner only)
-  - `GET /{id}/availability?checkIn=&checkOut=` — available rooms
-- [ ] 3.7 Add `@PreAuthorize` role checks using forwarded header
-- [ ] 3.8 Write tests (Testcontainers + MongoDB)
+  - `Type` enum in `enums/Type.java`
+  - `@Indexed` on `hotelId` for fast room lookups by hotel
+- [x] 3.4 Implement `HotelRepository`, `RoomRepository` (Spring Data MongoDB)
+  - `HotelRepositoryCustom` + `HotelRepositoryImpl` with `MongoTemplate` for flexible search
+- [x] 3.5 Implement `HotelService`
+  - Interface + `HotelServiceImpl`
+  - `createHotel`, `getHotelById`, `searchHotels`, `updateHotel`, `deleteHotel`
+  - `addRoom`, `getRoomsByHotel`, `getAvailableRooms` (stub — Booking Service wired in Phase 4)
+  - `HotelMapper` + `RoomMapper` (MapStruct, `NullValuePropertyMappingStrategy.IGNORE`)
+  - DTOs: `CreateHotelRequest`, `UpdateHotelRequest`, `CreateRoomRequest`, `HotelResponse`, `RoomResponse`
+  - Exceptions: `ResourceNotFoundException`, `ResourceExistsException`, `ForbiddenException`, `GlobalExceptionHandler`
+- [x] 3.6 Create `HotelController` (`/api/v1/hotels`)
+  - `POST /` — create hotel → 201
+  - `GET /{id}` — hotel detail → 200
+  - `GET /` — search (city, country, minStars + pageable) → 200
+  - `PUT /{id}` — update hotel → 200
+  - `DELETE /{id}` — delete hotel → 204
+  - `POST /{id}/rooms` — add room → 201
+  - `GET /{id}/rooms` — list all rooms → 200
+  - `GET /{id}/availability` — available rooms → 200
+  - `managerId` extracted from `X-User-Id` header (forwarded by gateway)
+- [x] 3.7 Add `@PreAuthorize` role checks using forwarded header
+  - `HeaderAuthenticationFilter` — reads `X-User-Id` + `X-User-Role` headers, populates `SecurityContext`
+  - `SecurityConfig` — stateless, CSRF disabled, `permitAll` (gateway guards perimeter), `@EnableMethodSecurity`
+  - `POST /`, `PUT /{id}`, `POST /{id}/rooms` → `hasRole('HOTEL_MANAGER')`
+  - `DELETE /{id}` → `hasRole('HOTEL_MANAGER') or hasRole('ADMIN')`
+  - GET endpoints remain public
+- [x] 3.8 Write tests (Testcontainers + MongoDB)
+  - `HotelServiceTest` — 14 unit tests, all 8 service methods covered with Mockito
+  - `HotelControllerIT` — 14 integration tests, full HTTP stack with Testcontainers MongoDB
+  - `application-test.yml` — MongoDB URI overridden via `@DynamicPropertySource`
 
 ### Key Files
 ```

@@ -3,7 +3,7 @@
 #  Requires: Docker, Docker Compose, Maven (or use ./mvnw)
 # ─────────────────────────────────────────────────────────
 
-.PHONY: up down build logs fresh certs infra-up infra-down
+.PHONY: up down build logs fresh fresh-infra certs infra-up infra-down
 
 ## Start everything (infra + all services)
 up:
@@ -37,10 +37,15 @@ logs:
 logs-service:
 	docker compose logs -f $(SERVICE)
 
-## Nuke everything: containers + volumes (fresh start)
+## Nuke everything: containers + volumes (fresh start) — requires all Dockerfiles (Phase 8+)
 fresh:
 	docker compose down -v
 	docker compose up -d
+
+## Nuke infra only: containers + volumes, then restart infrastructure (use during development)
+fresh-infra:
+	docker compose down -v
+	$(MAKE) infra-up
 
 ## Generate RSA keypair for JWT
 certs:

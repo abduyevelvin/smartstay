@@ -273,9 +273,9 @@ Each service module follows the same layout:
 | Phase | Description                        | Status      |
 |-------|------------------------------------|-------------|
 | 0     | Project scaffold & infrastructure  | ✅ Done     |
-| 1     | Auth Service (JWT)                 | 🔲 Planned  |
-| 2     | API Gateway (routing, rate limit)  | 🔲 Planned  |
-| 3     | Hotel Service (catalog, search)    | 🔲 Planned  |
+| 1     | Auth Service (JWT)                 | ✅ Done     |
+| 2     | API Gateway (routing, rate limit)  | ✅ Done     |
+| 3     | Hotel Service (catalog, search)    | ✅ Done     |
 | 4     | Booking Service (reservations)     | 🔲 Planned  |
 | 5     | AI Assistant Service (RAG, chat)   | 🔲 Planned  |
 | 6     | Review Service                     | 🔲 Planned  |

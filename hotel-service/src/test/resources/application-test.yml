@@ -1,0 +1,5 @@
+spring:
+  data:
+    mongodb:
+      auto-index-creation: true
+      # URI and database overridden via @DynamicPropertySource in IT tests

@@ -88,6 +88,10 @@ services:
       MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER}
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
       MONGO_INITDB_DATABASE: smartstay
+      MONGO_HOTEL_USER: ${MONGO_HOTEL_USER}
+      MONGO_HOTEL_PASSWORD: ${MONGO_HOTEL_PASSWORD}
+      MONGO_REVIEW_USER: ${MONGO_REVIEW_USER}
+      MONGO_REVIEW_PASSWORD: ${MONGO_REVIEW_PASSWORD}
     ports:
       - "27017:27017"
     volumes:
@@ -235,8 +239,8 @@ services:
         condition: service_healthy
     environment:
       SPRING_PROFILES_ACTIVE: docker
-      MONGO_ROOT_USER: ${MONGO_ROOT_USER}
-      MONGO_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+      MONGO_HOTEL_USER: ${MONGO_HOTEL_USER}
+      MONGO_HOTEL_PASSWORD: ${MONGO_HOTEL_PASSWORD}
     ports:
       - "8082:8082"
     networks:
@@ -275,8 +279,8 @@ services:
         condition: service_healthy
     environment:
       SPRING_PROFILES_ACTIVE: docker
-      MONGO_ROOT_USER: ${MONGO_ROOT_USER}
-      MONGO_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+      MONGO_REVIEW_USER: ${MONGO_REVIEW_USER}
+      MONGO_REVIEW_PASSWORD: ${MONGO_REVIEW_PASSWORD}
     ports:
       - "8084:8084"
     networks:
