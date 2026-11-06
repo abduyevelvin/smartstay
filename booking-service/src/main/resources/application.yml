@@ -1,0 +1,29 @@
+spring:
+  application:
+    name: booking-service
+  datasource:
+    url: jdbc:postgresql://localhost:5433/booking_db
+    username: ${POSTGRES_BOOKING_USER}
+    password: ${POSTGRES_BOOKING_PASSWORD}
+  jpa:
+    hibernate:
+      ddl-auto: validate        # Flyway manages schema, Hibernate just validates
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+  kafka:
+    bootstrap-servers: localhost:29092
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+
+server:
+  port: 8083
+
+feign:
+  hotel-service:
+    url: http://localhost:8082

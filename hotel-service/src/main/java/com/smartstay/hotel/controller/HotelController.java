@@ -93,6 +93,12 @@ public class HotelController {
                              .body(hotelService.addRoom(hotelId, request, managerId));
     }
 
+    @GetMapping("/{hotelId}/rooms/{roomId}")
+    public ResponseEntity<RoomResponse> getRoomById(@PathVariable String hotelId,
+                                                    @PathVariable String roomId) {
+        return ResponseEntity.ok(hotelService.getRoomByHotelAndById(hotelId, roomId));
+    }
+
     @GetMapping("/{hotelId}/rooms")
     public ResponseEntity<List<RoomResponse>> getRoomsByHotel(@PathVariable String hotelId) {
         return ResponseEntity.ok(hotelService.getRoomsByHotel(hotelId));

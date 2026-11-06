@@ -34,6 +34,9 @@ public interface HotelService {
                          CreateRoomRequest request,
                          String managerId);
 
+    RoomResponse getRoomByHotelAndById(String hotelId,
+                                       String roomId);
+
     List<RoomResponse> getRoomsByHotel(String hotelId);
 
     List<RoomResponse> getAvailableRooms(String hotelId);

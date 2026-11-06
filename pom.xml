@@ -34,7 +34,7 @@
 
         <!-- Library versions -->
         <jjwt.version>0.12.6</jjwt.version>
-        <lombok.version>1.18.36</lombok.version>
+        <lombok.version>1.18.42</lombok.version>
         <mapstruct.version>1.6.3</mapstruct.version>
         <testcontainers.version>1.21.4</testcontainers.version>
     </properties>
@@ -153,6 +153,24 @@
                             <DOCKER_HOST>npipe:////./pipe/docker_engine</DOCKER_HOST>
                             <DOCKER_API_VERSION>1.45</DOCKER_API_VERSION>
                         </systemPropertyVariables>
+                        <!-- Also run *IT classes (integration tests). Surefire's default only runs
+                             *Test / *Tests / *TestCase; *IT is normally for failsafe. We keep
+                             everything in the test phase for simplicity on this project. -->
+                        <includes>
+                            <include>**/*Test.java</include>
+                            <include>**/*Tests.java</include>
+                            <include>**/*TestCase.java</include>
+                            <include>**/*IT.java</include>
+                        </includes>
+                        <!-- Java 9+ module system and ByteBuddy experimental mode for Java 25.
+                             ByteBuddy officially supports up to Java 24; the experimental flag
+                             allows it to instrument Java 25 class files for Mockito inline mocks. -->
+                        <argLine>
+                            --add-opens=java.base/java.lang=ALL-UNNAMED
+                            --add-opens=java.base/java.util=ALL-UNNAMED
+                            --add-opens=java.base/java.io=ALL-UNNAMED
+                            -Dnet.bytebuddy.experimental=true
+                        </argLine>
                     </configuration>
                 </plugin>
                 <plugin>

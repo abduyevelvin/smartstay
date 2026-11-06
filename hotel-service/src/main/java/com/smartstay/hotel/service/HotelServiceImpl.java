@@ -3,7 +3,6 @@ package com.smartstay.hotel.service;
 import java.util.List;
 
 import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 
@@ -61,17 +60,11 @@ public class HotelServiceImpl implements HotelService {
                                             final String country,
                                             final Double minStars,
                                             final Pageable pageable) {
-        log.debug("Searching hotels — city={}, country={}, minStars={}, page={}, size={}",
-                city, country, minStars, pageable.getPageNumber(), pageable.getPageSize());
+        log.debug("Searching hotels — city={}, country={}, minStars={}, page={}, size={}", city, country, minStars,
+                pageable.getPageNumber(), pageable.getPageSize());
 
-        final var hotelDocuments = hotelRepository.searchHotels(city, country, minStars, pageable);
-        final var hotels = hotelDocuments.stream()
-                                         .map(hotelMapper::toResponse)
-                                         .toList();
-
-        log.debug("Search returned {} hotel(s) (total={})", hotels.size(), hotelDocuments.getTotalElements());
-
-        return new PageImpl<>(hotels, pageable, hotelDocuments.getTotalElements());
+        return hotelRepository.searchHotels(city, country, minStars, pageable)
+                              .map(hotelMapper::toResponse);
     }
 
     @Override
@@ -82,7 +75,8 @@ public class HotelServiceImpl implements HotelService {
                                                  .orElseThrow(() -> new ResourceNotFoundException(
                                                          "Hotel not found with id: " + id));
 
-        if (!hotelDocument.getManagerId().equals(managerId)) {
+        if (!hotelDocument.getManagerId()
+                          .equals(managerId)) {
             log.warn("Forbidden update attempt — hotelId={}, requesterId={}", id, managerId);
             throw new ForbiddenException("You are not authorized to update this hotel");
         }
@@ -102,7 +96,8 @@ public class HotelServiceImpl implements HotelService {
                                                  .orElseThrow(() -> new ResourceNotFoundException(
                                                          "Hotel not found with id: " + id));
 
-        if (!hotelDocument.getManagerId().equals(managerId)) {
+        if (!hotelDocument.getManagerId()
+                          .equals(managerId)) {
             log.warn("Forbidden delete attempt — hotelId={}, requesterId={}", id, managerId);
             throw new ForbiddenException("You are not authorized to delete this hotel");
         }
@@ -120,7 +115,8 @@ public class HotelServiceImpl implements HotelService {
                                                  .orElseThrow(() -> new ResourceNotFoundException(
                                                          "Hotel not found with id: " + hotelId));
 
-        if (!hotelDocument.getManagerId().equals(managerId)) {
+        if (!hotelDocument.getManagerId()
+                          .equals(managerId)) {
             log.warn("Forbidden add-room attempt — hotelId={}, requesterId={}", hotelId, managerId);
             throw new ForbiddenException("You are not authorized to add rooms to this hotel");
         }
@@ -138,6 +134,18 @@ public class HotelServiceImpl implements HotelService {
         log.info("Room added — roomId={}, hotelId={}, managerId={}", saved.getId(), hotelId, managerId);
 
         return roomMapper.toResponse(saved);
+    }
+
+    @Override
+    public RoomResponse getRoomByHotelAndById(final String hotelId,
+                                              final String roomId) {
+        log.debug("Fetching room - hotelId={}, roomId={}", hotelId, roomId);
+
+        final var room = roomRepository.findByHotelIdAndId(hotelId, roomId)
+                                       .orElseThrow(() -> new ResourceNotFoundException(
+                                               "Room not found with id: " + roomId + " in hotel: " + hotelId));
+
+        return roomMapper.toResponse(room);
     }
 
     @Override

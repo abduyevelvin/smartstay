@@ -1,0 +1,10 @@
+# Test profile — provides placeholder values so Spring can resolve application.yml without
+# real environment variables.  @ServiceConnection and @EmbeddedKafka override the actual
+# datasource and Kafka bootstrap-servers at runtime.
+
+POSTGRES_BOOKING_USER: test
+POSTGRES_BOOKING_PASSWORD: test
+
+feign:
+  hotel-service:
+    url: http://localhost:9999   # never reached in tests — HotelServiceClient is @MockBean or Mockito mock

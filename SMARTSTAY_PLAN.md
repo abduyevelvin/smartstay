@@ -39,8 +39,10 @@ smartstay/
   - `<packaging>pom</packaging>`
   - Declares all 7 child modules
   - `dependencyManagement`: Spring Boot 3.4.5 BOM, Spring AI 1.0.0 BOM, Spring Cloud 2024.0.1 BOM
-  - jjwt 0.12.6, MapStruct 1.6.3, Testcontainers 1.20.4 versions pinned
-  - Lombok + spring-boot-starter-test inherited by all modules
+  - jjwt 0.12.6, MapStruct 1.6.3, Testcontainers 1.21.4 versions pinned
+  - Lombok 1.18.42 (upgraded from 1.18.36 for Java 25 support), spring-boot-starter-test inherited by all modules
+  - Surefire: `includes` extended to `**/*IT.java`; `argLine` adds `--add-opens java.base/java.lang=ALL-UNNAMED` + `-Dnet.bytebuddy.experimental=true` (Java 25 Mockito/ByteBuddy fix)
+  - `.mvn/jvm.config` — exports jdk.compiler internals for MapStruct annotation processor under Java 25
 - [x] 0.3 Create `docker-compose.yml` with all infrastructure + application services:
   - `postgres-auth` (host port 5432) — auth_db
   - `postgres-booking` (host port 5433) — booking_db
@@ -360,49 +362,60 @@ hotel-service/src/main/java/com/smartstay/hotel/
   - `existsOverlappingBooking(roomId, checkIn, checkOut, cancelled)` → `boolean`
     - Custom `@Query` with JPQL overlap logic: `checkIn < :checkOut AND checkOut > :checkIn AND status <> :cancelled`
     - Replaces the incorrect `findByRoomIdAndCheckInBetween` (which only checked one boundary)
-- [ ] 4.4 Implement `HotelServiceClient` (Feign)
+- [x] 4.4 Implement `HotelServiceClient` (Feign)
   - `getHotel(hotelId)` → `HotelSummary { id, name, city, country }` — for event payload (hotel name)
   - `getRoom(hotelId, roomId)` → `RoomSummary { id, hotelId, roomNumber, pricePerNight, maxOccupancy, available }`
   - URL configured via `feign.hotel-service.url` property (default: `http://hotel-service:8082`)
-  - ⚠️ Requires adding `GET /api/v1/hotels/{hotelId}/rooms/{roomId}` endpoint to hotel-service
-    (currently only `GET /{hotelId}/rooms` exists — returns all rooms)
-- [ ] 4.5 Implement `BookingService`
-  - Config needed first: `JpaConfig` (JPA auditing), `KafkaConfig` (topic declarations),
-    `SecurityConfig` + `HeaderAuthenticationFilter` (trust gateway headers)
-  - `createBooking(request, guestId, guestEmail)`:
-    1. Validate hotel + room via Feign (`getHotel`, `getRoom`)
-    2. Check no overlapping bookings via `existsOverlappingBooking` → throw `BookingConflictException` (409) if overlap
-    3. Calculate `totalPrice = room.pricePerNight * nights`
-    4. Save with status `CONFIRMED` (skip PENDING intermediate state for simplicity)
-    5. Publish `BookingConfirmedEvent` to Kafka
-  - `cancelBooking(bookingId, userId, userRole)` — guest cancels own booking; manager cancels any
-  - `getMyBookings(guestId, pageable)` — paginated
-  - `getHotelBookings(hotelId)` — manager view (all statuses)
-  - `checkRoomAvailability(roomId, checkIn, checkOut)` → `boolean`
+  - `GET /api/v1/hotels/{hotelId}/rooms/{roomId}` added to hotel-service (`getRoomById`)
+- [x] 4.5 Implement `BookingService`
+  - Config: `JpaConfig`, `KafkaConfig`, `SecurityConfig`, `HeaderAuthenticationFilter` done
+  - `UserPrincipal` record + `SecurityUtils` helper (userId + email from security context)
+  - `createBooking` — Feign validation, overlap check, price calc, save, publish event
+  - `cancelBooking` — ownership check, save, publish event (Feign for hotel name)
+  - `getMyBookings`, `getHotelBookings`, `checkRoomAvailability` implemented
   - Exceptions: `ResourceNotFoundException` (404), `ForbiddenException` (403), `BookingConflictException` (409)
-- [ ] 4.6 Create `BookingController` (`/api/v1/bookings`)
+- [x] 4.6 Create `BookingController` (`/api/v1/bookings`)
   - `POST /` — create booking → 201 (`GUEST` only)
   - `GET /my` — my bookings (guest, paginated)
   - `GET /hotel/{hotelId}` — hotel bookings (`HOTEL_MANAGER` only)
   - `PUT /{id}/cancel` — cancel booking → 200
   - `GET /availability?roomId=&checkIn=&checkOut=` — check availability → 200 `{ available: bool }`
-  - `guestId` / `guestEmail` extracted from `X-User-Id` / `X-User-Email` headers (forwarded by gateway)
-  - Role guards via `@PreAuthorize` (requires `SecurityConfig` + `HeaderAuthenticationFilter`)
-- [ ] 4.7 Implement `BookingEventProducer` (Kafka)
+  - Principal extracted from `Authentication` via `UserPrincipal`, role from authorities
+- [x] 4.7 Implement `BookingEventProducer` (Kafka)
   - Publishes `BookingConfirmedEvent { bookingId, guestEmail, hotelName, checkIn, checkOut }`
   - Publishes `BookingCancelledEvent { bookingId, guestEmail, hotelName, checkIn, checkOut }`
   - Key: `bookingId.toString()` for partition locality
   - Topics declared as `@Bean NewTopic` in `KafkaConfig`
-- [ ] 4.8 Flyway migration
+- [x] 4.8 Flyway migration
   - `V1__init.sql` — creates `bookings` table; indexes on `guest_id`, `room_id`, `hotel_id`
-- [ ] 4.9 `application.yml` + `application-docker.yml`
+- [x] 4.9 `application.yml` + `application-docker.yml`
   - Datasource: `postgres-booking:5433 / booking_db`
   - Kafka bootstrap: `kafka:9092` (docker) / `localhost:29092` (local)
   - Feign URL: `feign.hotel-service.url`
   - Producer value serializer: `JsonSerializer`
-- [ ] 4.10 Write integration tests (Testcontainers PostgreSQL + `@EmbeddedKafka`)
-  - `BookingServiceTest` — unit tests with mocked Feign client + repository
-  - `BookingControllerIT` — full stack, Feign `@MockBean`, `@EmbeddedKafka`
+- [x] 4.10 Write tests (Testcontainers PostgreSQL + `@EmbeddedKafka`)
+  - `BookingServiceImplTest` — 16 unit tests, all 5 service methods covered with Mockito
+    - `createBooking`: success, room disabled, overlap, hotel 404, room 404, total-price calc
+    - `cancelBooking`: as owner, as manager, as admin, not-found, already-cancelled, forbidden
+    - `getMyBookings`, `getHotelBookings`, `checkRoomAvailability` (available + not available)
+  - `BookingRepositoryTest` — 10 `@DataJpaTest` + Testcontainers PostgreSQL tests
+    - `existsOverlappingBooking`: no booking, full overlap, start overlap, end overlap, adjacent (no overlap), CANCELLED excluded, different room
+    - `findByGuestId`: pagination, second-page slice
+    - `findByHotelId`: returns only matching hotel
+  - `BookingControllerIT` — 19 full-stack tests (`@SpringBootTest` + Flyway + `@EmbeddedKafka` + Feign `@MockBean`)
+    - `POST /api/v1/bookings`: 201 + DB persist, 403 wrong role, 409 disabled, 409 overlap, 404 hotel, 400 blank field, 400 bad dates
+    - `PUT /{id}/cancel`: 200 as owner (verifies DB), 403 other guest, 200 as manager, 404 not found, 409 already cancelled
+    - `GET /my`: 200 with 2 results (filters other guests), 403 wrong role
+    - `GET /hotel/{hotelId}`: 200 with 2 bookings (filters other hotel), 403 wrong role
+    - `GET /availability`: true (no booking), false (overlap), true (cancelled ignored)
+  - **Build fixes required (Java 25 + Lombok 1.18.36 incompatibility)**:
+    - Upgraded Lombok to `1.18.42` in parent pom (`TypeTag.UNKNOWN` removed in Java 25)
+    - Added `.mvn/jvm.config` with javac internal API exports for MapStruct
+    - Added Surefire `argLine`: `--add-opens java.base/java.lang=ALL-UNNAMED` + `-Dnet.bytebuddy.experimental=true`
+    - Added Surefire `includes` for `**/*IT.java` (default pattern excluded integration test class)
+    - Added `spring-boot-testcontainers` to booking-service test deps (`@ServiceConnection`)
+
+> **Result**: 45 tests, 0 failures — `mvn -pl booking-service test` → BUILD SUCCESS
 
 ### Key Files
 ```
@@ -411,33 +424,39 @@ booking-service/src/main/java/com/smartstay/booking/
   entity/BookingEntity.java       ✅ done
   enums/BookingStatus.java        ✅ done
   repository/BookingRepository.java ✅ done
-  config/JpaConfig.java
-  config/KafkaConfig.java
-  security/HeaderAuthenticationFilter.java
-  security/SecurityConfig.java
-  client/HotelServiceClient.java
-  client/dto/HotelSummary.java
-  client/dto/RoomSummary.java
-  dto/CreateBookingRequest.java
-  dto/BookingResponse.java
-  dto/ErrorResponse.java
-  service/BookingService.java
-  service/BookingServiceImpl.java
-  controller/BookingController.java
-  event/BookingConfirmedEvent.java
-  event/BookingCancelledEvent.java
-  event/BookingEventProducer.java
-  exception/ResourceNotFoundException.java
-  exception/ForbiddenException.java
-  exception/BookingConflictException.java
-  exception/GlobalExceptionHandler.java
-  mapper/BookingMapper.java
+  config/JpaConfig.java                   ✅ done
+  config/KafkaConfig.java                 ✅ done
+  config/SecurityConfig.java              ✅ done
+  security/HeaderAuthenticationFilter.java ✅ done
+  security/UserPrincipal.java             ✅ done
+  utils/SecurityUtils.java                ✅ done
+  client/HotelServiceClient.java          ✅ done
+  client/dto/HotelSummary.java            ✅ done
+  client/dto/RoomSummary.java             ✅ done
+  dto/CreateBookingRequest.java           ✅ done
+  dto/BookingResponse.java                ✅ done
+  dto/ErrorResponse.java                  ✅ done
+  service/BookingService.java             ✅ done
+  service/BookingServiceImpl.java         ✅ done
+  controller/BookingController.java       ✅ done
+  event/BookingConfirmedEvent.java        ✅ done
+  event/BookingCancelledEvent.java        ✅ done
+  event/BookingEventProducer.java         ✅ done
+  exceptions/ResourceNotFoundException.java ✅ done
+  exceptions/ForbiddenException.java      ✅ done
+  exceptions/BookingConflictException.java ✅ done
+  exceptions/GlobalExceptionHandler.java  ✅ done
+  mapper/BookingMapper.java               ✅ done
 src/main/resources/
-  application.yml
-  application-docker.yml
-  db/migration/V1__init.sql
+  application.yml                         ✅ done
+  application-docker.yml                  ✅ done
+  db/migration/V1__init.sql               ✅ done
+src/test/java/com/smartstay/booking/
+  service/BookingServiceImplTest.java     ✅ done
+  repository/BookingRepositoryTest.java   ✅ done
+  controller/BookingControllerIT.java     ✅ done
 src/test/resources/
-  application-test.yml
+  application-test.yml                    ✅ done
 ```
 
 ---

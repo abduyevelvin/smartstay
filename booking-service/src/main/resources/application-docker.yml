@@ -1,0 +1,12 @@
+# ── Docker profile — overrides application.yml when SPRING_PROFILES_ACTIVE=docker ──
+# Hostnames match the docker-compose.yml service names.
+
+spring:
+  datasource:
+    url: jdbc:postgresql://postgres-booking:5433/booking_db
+  kafka:
+    bootstrap-servers: kafka:9092
+
+feign:
+  hotel-service:
+    url: http://hotel-service:8082
