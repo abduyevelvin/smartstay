@@ -50,6 +50,7 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
                 final var email = claims.getSubject();
                 final var userId = claims.get("userId", String.class);
                 final var role = claims.get("role", String.class);
+                final var name = claims.get("name", String.class);
 
                 log.debug("JWT validated for user [{}] with role [{}] on path [{}]", userId, role, requestPath);
                 final var mutatedRequest = exchange.getRequest()
@@ -57,6 +58,7 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
                                                    .header("X-User-Email", email)
                                                    .header("X-User-Id", userId)
                                                    .header("X-User-Role", role)
+                                                   .header("X-User-Name", name != null ? name : email)
                                                    .build();
                 return chain.filter(exchange.mutate()
                                             .request(mutatedRequest)

@@ -130,6 +130,7 @@ smartstay/
   - Keys loaded via `ResourceLoader` at `@PostConstruct`
   - `extractEmail`, `extractUserId`, `extractRole` helpers included
   - `SecurityProperties` holds key paths + expiry values
+  - JWT claims: `userId`, `role`, `name` (`firstName + " " + lastName`), subject = email
   - ⚠️ `scripts/generate-certs.sh` fixed: switched from `openssl genrsa` (PKCS#1)
     to `openssl genpkey` (PKCS#8) — required by Java `PKCS8EncodedKeySpec`
 - [x] 1.6 Implement `AuthService`
@@ -227,7 +228,7 @@ auth-service/src/main/java/com/smartstay/auth/
   - Extract `Authorization: Bearer <token>` header
   - Validate JWT signature using **public key** (RS256)
   - Reject with `401` if missing/invalid/expired
-  - Forward claims as headers to downstream: `X-User-Id`, `X-User-Email`, `X-User-Role`
+  - Forward claims as headers to downstream: `X-User-Id`, `X-User-Email`, `X-User-Role`, `X-User-Name`
 - [x] 2.4 Add Redis-based `RequestRateLimiterGatewayFilterFactory`
   - 100 req/min per IP for public routes
   - 300 req/min per user for authenticated routes
@@ -553,21 +554,19 @@ ai-assistant-service/src/main/java/com/smartstay/ai/
   - `@Indexed` on `hotelId`; `@Min(1) @Max(5)` on rating; `@NotBlank` on required fields
   - `@Builder @NoArgsConstructor @AllArgsConstructor` on `ReviewDocument`
   - `ReviewRepository`: `findByHotelIdOrderByCreatedAtDesc`, `findByGuestId`, `existsByHotelIdAndGuestId`, `findByHotelId`
-- [ ] 6.3 Implement `ReviewService`
-  - Prerequisites done ✅:
-    - `@EnableFeignClients` on `ReviewServiceApplication`
-    - `application.yml` + `application-docker.yml` — `feign.hotel-service.url` added
-    - `client/HotelServiceClient` — `PATCH /api/v1/hotels/{id}/rating`
-    - `client/dto/UpdateRatingRequest`
-  - Still needed:
-    - `security/HeaderAuthenticationFilter` + `UserPrincipal` + `SecurityConfig`
-    - `client/BookingServiceClient` — `GET /api/v1/bookings/verify-stay`
-    - `client/dto/VerifyStayResponse`
-    - `dto/CreateReviewRequest`, `dto/ReviewResponse`
-    - `mapper/ReviewMapper`
-    - `exception/` — `ResourceNotFoundException`, `ForbiddenException`, `UnverifiedStayException`, `AlreadyReviewedException`, `GlobalExceptionHandler`
-    - `service/ReviewService` (interface) + `service/ReviewServiceImpl`
-- [ ] 6.4 Create `ReviewController` (`/api/v1/reviews`)
+- [x] 6.3 Implement `ReviewService`
+  - `security/HeaderAuthenticationFilter` + `UserPrincipal(userId, email, name)` + `SecurityConfig` ✅
+  - `client/BookingServiceClient` — `GET /api/v1/bookings/verify-stay` ✅
+  - `client/dto/VerifyStayResponse(boolean isStayed)` ✅
+  - `dto/CreateReviewRequest`, `dto/ReviewResponse`, `dto/ErrorResponse` ✅
+  - `mapper/ReviewMapper` (MapStruct) ✅
+  - `exceptions/` — `ResourceNotFoundException`, `ForbiddenException`, `UnverifiedStayException`, `AlreadyReviewedException`, `GlobalExceptionHandler` ✅
+  - `service/ReviewService` (interface) + `service/ReviewServiceImpl` ✅
+    - `createReview`: verify stay via Feign → check duplicate → save → publish `review.created`
+    - `getHotelReviews`: paginated by hotel
+    - `getMyReviews`: by guestId
+    - `deleteReview`: owner or ADMIN only
+- [x] 6.4 Create `ReviewController` (`/api/v1/reviews`)
   - `POST /` — submit review (GUEST only)
   - `GET /hotel/{hotelId}` — hotel reviews (paginated)
   - `GET /my` — my reviews
@@ -578,6 +577,13 @@ ai-assistant-service/src/main/java/com/smartstay/ai/
   - `ReviewEventProducer` — publishes `review.created` keyed by `reviewId`
   - `ReviewAnalyzedConsumer` — updates sentiment/tags → recalculates avg rating → calls hotel-service
   - `KafkaConfig` — declares `review.created` and `review.analyzed` topics
+- [x] 6.6 Write tests (Testcontainers + MongoDB)
+    - `ReviewServiceImplTest` — 10 unit tests: createReview (success, correct fields, unverified, feign down, duplicate), getHotelReviews, getMyReviews, deleteReview (owner, admin, not found, forbidden)
+    - `ReviewControllerIT` — 13 full-stack tests: Testcontainers MongoDB + `@EmbeddedKafka` + `@MockBean` Feign clients
+      - `POST /`: 201+persist, 403 wrong role, 403 unverified, 403 feign down, 409 duplicate, 400 blank title, 400 rating > 5
+      - `GET /hotel/{id}`: 200 paginated (filters other hotel), 200 empty
+      - `GET /my`: 200 filters own reviews, 403 wrong role
+      - `DELETE /{id}`: 204 owner (DB verified), 204 admin, 403 other guest (DB verified not deleted), 404 not found
 
 ### Hotel-service additions (done alongside Phase 6) ✅
   - `dto/UpdateRatingRequest` — `{ averageRating, reviewCount }`

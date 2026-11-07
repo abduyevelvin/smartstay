@@ -39,7 +39,6 @@ public class JwtService {
     private PrivateKey privateKey;
     private PublicKey publicKey;
 
-
     // -------------------------------------------------------------------------
     // Load keys from resources
     // -------------------------------------------------------------------------
@@ -65,6 +64,7 @@ public class JwtService {
                                  .toString());
         claims.put("role", user.getRole()
                                .name());
+        claims.put("name", user.getFirstName() + " " + user.getLastName());
 
         long expiryMillis = securityProperties.getAccessTokenExpiry() * 1000L;
 

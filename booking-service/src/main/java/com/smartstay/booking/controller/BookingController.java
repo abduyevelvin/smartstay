@@ -86,7 +86,7 @@ public class BookingController {
         return ResponseEntity.ok(Map.of("available", available));
     }
 
-    @GetMapping("verify-stay")
+    @GetMapping("/verify-stay")
     public ResponseEntity<Map<String, Boolean>> verifyStay(@RequestParam UUID guestId,
                                                            @RequestParam String hotelId) {
         return ResponseEntity.ok(Map.of("isStayed", bookingService.guestIsStayed(guestId, hotelId)));

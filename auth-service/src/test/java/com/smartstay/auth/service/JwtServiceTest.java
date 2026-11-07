@@ -89,6 +89,8 @@ class JwtServiceTest {
         testUser = new UserEntity();
         testUser.setEmail("test@smartstay.com");
         testUser.setRole(Role.GUEST);
+        testUser.setFirstName("John");
+        testUser.setLastName("Doe");
         // Set id via reflection since @GeneratedValue doesn't run outside JPA
         java.lang.reflect.Field idField = testUser.getClass().getSuperclass().getDeclaredField("id");
         idField.setAccessible(true);
@@ -113,6 +115,7 @@ class JwtServiceTest {
         assertThat(claims.getSubject()).isEqualTo(testUser.getEmail());
         assertThat(claims.get("userId", String.class)).isEqualTo(testUser.getId().toString());
         assertThat(claims.get("role", String.class)).isEqualTo(Role.GUEST.name());
+        assertThat(claims.get("name", String.class)).isEqualTo("John Doe");
     }
 
     // -------------------------------------------------------------------------

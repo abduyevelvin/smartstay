@@ -1,0 +1,9 @@
+# Test profile — provides placeholder values so Spring can resolve application.yml
+# without real environment variables.  @ServiceConnection overrides the MongoDB URI
+# and @EmbeddedKafka overrides bootstrap-servers at runtime.
+
+feign:
+  booking-service:
+    url: http://localhost:9998   # never reached — BookingServiceClient is @MockBean
+  hotel-service:
+    url: http://localhost:9999   # never reached — HotelServiceClient is @MockBean
