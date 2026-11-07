@@ -18,6 +18,7 @@ import com.smartstay.booking.client.dto.RoomSummary;
 import com.smartstay.booking.dto.BookingResponse;
 import com.smartstay.booking.dto.CreateBookingRequest;
 import com.smartstay.booking.entity.BookingEntity;
+import com.smartstay.booking.enums.BookingStatus;
 import com.smartstay.booking.event.BookingCancelledEvent;
 import com.smartstay.booking.event.BookingConfirmedEvent;
 import com.smartstay.booking.event.BookingEventProducer;
@@ -46,11 +47,11 @@ public class BookingServiceImpl implements BookingService {
                                          final UUID guestId,
                                          final String guestEmail) {
 
-        log.debug("Creating booking — guestId={}, hotelId={}, roomId={}, checkIn={}, checkOut={}",
-                guestId, request.hotelId(), request.roomId(), request.checkIn(), request.checkOut());
+        log.debug("Creating booking — guestId={}, hotelId={}, roomId={}, checkIn={}, checkOut={}", guestId,
+                request.hotelId(), request.roomId(), request.checkIn(), request.checkOut());
 
         final var hotel = getHotelOrThrow(request.hotelId());
-        final var room  = getRoomOrThrow(request.hotelId(), request.roomId());
+        final var room = getRoomOrThrow(request.hotelId(), request.roomId());
 
         if (!room.available()) {
             log.warn("Room is disabled — hotelId={}, roomId={}", request.hotelId(), request.roomId());
@@ -59,8 +60,8 @@ public class BookingServiceImpl implements BookingService {
 
         if (bookingRepository.existsOverlappingBooking(request.roomId(), request.checkIn(), request.checkOut(),
                 CANCELLED)) {
-            log.warn("Overlapping booking detected — roomId={}, checkIn={}, checkOut={}",
-                    request.roomId(), request.checkIn(), request.checkOut());
+            log.warn("Overlapping booking detected — roomId={}, checkIn={}, checkOut={}", request.roomId(),
+                    request.checkIn(), request.checkOut());
             throw new BookingConflictException(
                     "Room is already booked for the requested dates: " + request.checkIn() + " – "
                             + request.checkOut());
@@ -150,10 +151,13 @@ public class BookingServiceImpl implements BookingService {
     }
 
     @Override
-    public List<BookingResponse> getHotelBookings(final String hotelId) {
+    public List<BookingResponse> getHotelBookings(final String hotelId,
+                                                  BookingStatus status) {
         log.debug("Fetching bookings for hotelId={}", hotelId);
+        final var bookings = (status != null) ? bookingRepository.findByHotelIdAndStatus(hotelId, status)   // filtered
+                : bookingRepository.findByHotelId(hotelId);
 
-        return bookingMapper.toListResponse(bookingRepository.findByHotelId(hotelId));
+        return bookingMapper.toListResponse(bookings);
     }
 
     @Override
@@ -163,5 +167,14 @@ public class BookingServiceImpl implements BookingService {
         log.debug("Checking room availability for roomId={}, checkIn={}, checkOut={}", roomId, checkIn, checkOut);
 
         return !bookingRepository.existsOverlappingBooking(roomId, checkIn, checkOut, CANCELLED);
+    }
+
+    @Override
+    public boolean guestIsStayed(final UUID guestId,
+                                 final String hotelId) {
+
+        return bookingRepository.findFirstByGuestIdAndHotelIdAndStatusNotAndCheckOutLessThanEqual(guestId, hotelId,
+                                        CANCELLED, LocalDate.now())
+                                .isPresent();
     }
 }

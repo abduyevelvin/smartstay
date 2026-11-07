@@ -40,4 +40,10 @@ public interface HotelService {
     List<RoomResponse> getRoomsByHotel(String hotelId);
 
     List<RoomResponse> getAvailableRooms(String hotelId);
+
+    /**
+     * Internal — called by review-service via Feign after a review is analyzed
+     * to update the hotel's cached averageRating and reviewCount.
+     */
+    void updateRating(String hotelId, double averageRating, int reviewCount);
 }

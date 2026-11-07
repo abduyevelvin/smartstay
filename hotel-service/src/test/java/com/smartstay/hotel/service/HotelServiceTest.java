@@ -301,4 +301,29 @@ class HotelServiceTest {
         verify(roomRepository).findByHotelIdAndAvailable(HOTEL_ID, true);
         verify(roomRepository, never()).findByHotelId(anyString());
     }
+
+    // ── updateRating ──────────────────────────────────────────────────────────
+
+    @Test
+    void updateRating_shouldPersistAverageRatingAndReviewCount() {
+        when(hotelRepository.findById(HOTEL_ID)).thenReturn(Optional.of(hotelDocument));
+        when(hotelRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        hotelService.updateRating(HOTEL_ID, 4.5, 10);
+
+        assertThat(hotelDocument.getAverageRating()).isEqualTo(4.5);
+        assertThat(hotelDocument.getReviewCount()).isEqualTo(10);
+        verify(hotelRepository).save(hotelDocument);
+    }
+
+    @Test
+    void updateRating_shouldThrowWhenHotelNotFound() {
+        when(hotelRepository.findById(anyString())).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> hotelService.updateRating("ghost-id", 4.5, 10))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessageContaining("ghost-id");
+
+        verify(hotelRepository, never()).save(any());
+    }
 }

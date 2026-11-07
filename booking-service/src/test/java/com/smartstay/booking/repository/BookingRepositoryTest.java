@@ -167,6 +167,73 @@ class BookingRepositoryTest {
         assertThat(page.getContent()).hasSize(2); // 5 total, page 1 (0-indexed) with size 3 → 2 remaining
     }
 
+    // ── findFirstByGuestIdAndHotelIdAndStatusNotAndCheckOutLessThanEqual ─────────
+
+    @Test
+    void verifyStay_pastConfirmedBooking_returnsBooking() {
+        var guestId = UUID.randomUUID();
+        // checkOut yesterday — a completed stay
+        saveBookingForGuestAtHotel(guestId, HOTEL_ID, LocalDate.now().minusDays(5), LocalDate.now().minusDays(1), CONFIRMED);
+
+        var result = bookingRepository
+                .findFirstByGuestIdAndHotelIdAndStatusNotAndCheckOutLessThanEqual(
+                        guestId, HOTEL_ID, CANCELLED, LocalDate.now());
+
+        assertThat(result).isPresent();
+        assertThat(result.get().getGuestId()).isEqualTo(guestId);
+    }
+
+    @Test
+    void verifyStay_futureCheckout_returnsEmpty() {
+        var guestId = UUID.randomUUID();
+        // checkOut is 5 days in the future — guest hasn't stayed yet
+        saveBookingForGuestAtHotel(guestId, HOTEL_ID, LocalDate.now().plusDays(1), LocalDate.now().plusDays(5), CONFIRMED);
+
+        var result = bookingRepository
+                .findFirstByGuestIdAndHotelIdAndStatusNotAndCheckOutLessThanEqual(
+                        guestId, HOTEL_ID, CANCELLED, LocalDate.now());
+
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    void verifyStay_cancelledBookingExcluded_returnsEmpty() {
+        var guestId = UUID.randomUUID();
+        // Past stay but CANCELLED — must not count
+        saveBookingForGuestAtHotel(guestId, HOTEL_ID, LocalDate.now().minusDays(5), LocalDate.now().minusDays(1), CANCELLED);
+
+        var result = bookingRepository
+                .findFirstByGuestIdAndHotelIdAndStatusNotAndCheckOutLessThanEqual(
+                        guestId, HOTEL_ID, CANCELLED, LocalDate.now());
+
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    void verifyStay_differentGuest_returnsEmpty() {
+        var storedGuestId = UUID.randomUUID();
+        var queryGuestId  = UUID.randomUUID();
+        saveBookingForGuestAtHotel(storedGuestId, HOTEL_ID, LocalDate.now().minusDays(5), LocalDate.now().minusDays(1), CONFIRMED);
+
+        var result = bookingRepository
+                .findFirstByGuestIdAndHotelIdAndStatusNotAndCheckOutLessThanEqual(
+                        queryGuestId, HOTEL_ID, CANCELLED, LocalDate.now());
+
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    void verifyStay_differentHotel_returnsEmpty() {
+        var guestId = UUID.randomUUID();
+        saveBookingForGuestAtHotel(guestId, HOTEL_ID, LocalDate.now().minusDays(5), LocalDate.now().minusDays(1), CONFIRMED);
+
+        var result = bookingRepository
+                .findFirstByGuestIdAndHotelIdAndStatusNotAndCheckOutLessThanEqual(
+                        guestId, "other-hotel", CANCELLED, LocalDate.now());
+
+        assertThat(result).isEmpty();
+    }
+
     // ── findByHotelId ─────────────────────────────────────────────────────────
 
     @Test
@@ -213,6 +280,24 @@ class BookingRepositoryTest {
         entity.setCheckOut(checkOut);
         entity.setTotalPrice(200.0);
         entity.setStatus(CONFIRMED);
+        return bookingRepository.save(entity);
+    }
+
+    /** Full-control helper: explicit guestId, hotelId, and status. Used for verify-stay tests. */
+    private BookingEntity saveBookingForGuestAtHotel(UUID guestId,
+                                                     String hotelId,
+                                                     LocalDate checkIn,
+                                                     LocalDate checkOut,
+                                                     BookingStatus status) {
+        var entity = new BookingEntity();
+        entity.setGuestId(guestId);
+        entity.setGuestEmail("guest@test.com");
+        entity.setHotelId(hotelId);
+        entity.setRoomId("room-verify");
+        entity.setCheckIn(checkIn);
+        entity.setCheckOut(checkOut);
+        entity.setTotalPrice(200.0);
+        entity.setStatus(status);
         return bookingRepository.save(entity);
     }
 }

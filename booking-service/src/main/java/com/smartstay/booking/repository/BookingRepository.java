@@ -2,6 +2,7 @@ package com.smartstay.booking.repository;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import org.springframework.data.domain.Page;
@@ -35,4 +36,9 @@ public interface BookingRepository extends JpaRepository<BookingEntity, UUID> {
                                      @Param("checkIn") LocalDate checkIn,
                                      @Param("checkOut") LocalDate checkOut,
                                      @Param("cancelled") BookingStatus cancelled);
+
+    Optional<BookingEntity> findFirstByGuestIdAndHotelIdAndStatusNotAndCheckOutLessThanEqual(UUID guestId,
+                                                                                             String hotelId,
+                                                                                             BookingStatus status,
+                                                                                             LocalDate checkOut);
 }

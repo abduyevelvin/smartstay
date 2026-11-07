@@ -295,14 +295,27 @@ class BookingServiceImplTest {
     // ── getHotelBookings ──────────────────────────────────────────────────────
 
     @Test
-    void getHotelBookings_returnsMappedList() {
+    void getHotelBookings_noStatusFilter_returnsMappedList() {
         when(bookingRepository.findByHotelId(HOTEL_ID)).thenReturn(List.of(savedEntity));
         when(bookingMapper.toListResponse(List.of(savedEntity))).thenReturn(List.of(bookingResponse));
 
-        var result = bookingService.getHotelBookings(HOTEL_ID);
+        var result = bookingService.getHotelBookings(HOTEL_ID, null);
 
         assertThat(result).hasSize(1)
                           .containsExactly(bookingResponse);
+        verify(bookingRepository).findByHotelId(HOTEL_ID);
+    }
+
+    @Test
+    void getHotelBookings_withStatusFilter_delegatesToFilteredQuery() {
+        when(bookingRepository.findByHotelIdAndStatus(HOTEL_ID, CONFIRMED)).thenReturn(List.of(savedEntity));
+        when(bookingMapper.toListResponse(List.of(savedEntity))).thenReturn(List.of(bookingResponse));
+
+        var result = bookingService.getHotelBookings(HOTEL_ID, CONFIRMED);
+
+        assertThat(result).hasSize(1)
+                          .containsExactly(bookingResponse);
+        verify(bookingRepository).findByHotelIdAndStatus(HOTEL_ID, CONFIRMED);
     }
 
     // ── checkRoomAvailability ─────────────────────────────────────────────────
@@ -319,6 +332,26 @@ class BookingServiceImplTest {
         when(bookingRepository.existsOverlappingBooking(ROOM_ID, CHECK_IN, CHECK_OUT, CANCELLED)).thenReturn(true);
 
         assertThat(bookingService.checkRoomAvailability(ROOM_ID, CHECK_IN, CHECK_OUT)).isFalse();
+    }
+
+    // ── guestIsStayed ─────────────────────────────────────────────────────────
+
+    @Test
+    void guestIsStayed_hasPastCompletedBooking_returnsTrue() {
+        when(bookingRepository.findFirstByGuestIdAndHotelIdAndStatusNotAndCheckOutLessThanEqual(
+                eq(GUEST_ID), eq(HOTEL_ID), eq(CANCELLED), any(LocalDate.class)))
+                .thenReturn(Optional.of(savedEntity));
+
+        assertThat(bookingService.guestIsStayed(GUEST_ID, HOTEL_ID)).isTrue();
+    }
+
+    @Test
+    void guestIsStayed_noPastBooking_returnsFalse() {
+        when(bookingRepository.findFirstByGuestIdAndHotelIdAndStatusNotAndCheckOutLessThanEqual(
+                eq(GUEST_ID), eq(HOTEL_ID), eq(CANCELLED), any(LocalDate.class)))
+                .thenReturn(Optional.empty());
+
+        assertThat(bookingService.guestIsStayed(GUEST_ID, HOTEL_ID)).isFalse();
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

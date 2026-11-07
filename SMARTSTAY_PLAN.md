@@ -536,40 +536,79 @@ ai-assistant-service/src/main/java/com/smartstay/ai/
 
 ### Steps
 
-- [ ] 6.1 Create `review-service/` Maven module
+- [x] 6.1 Create `review-service/` Maven module
   - Dependencies: `spring-boot-starter-web`, `spring-boot-starter-data-mongodb`,
-    `spring-kafka`, `lombok`
-- [ ] 6.2 Create `Review` document
+    `spring-boot-starter-security`, `spring-kafka`, `spring-cloud-starter-openfeign`,
+    `mapstruct`, `lombok` (inherited from parent)
+  - Test deps: `testcontainers` (junit-jupiter + mongodb), `spring-boot-testcontainers`, `spring-kafka-test`
+  - `application.yml` (port 8084, MongoDB URI, Kafka, Feign booking-service URL)
+  - `application-docker.yml` (docker hostnames)
+- [x] 6.2 Create `Review` document
   ```
   id, hotelId, guestId, guestName, rating (1-5), title, body,
   sentiment (AI-filled), tags (AI-filled: ["clean","friendly",...]),
-  stayDate, createdAt, verified (boolean)
+  stayDate (LocalDate), createdAt, verified (boolean)
   ```
+  - `BaseDocument` (`@MappedSuperclass`-style): `id`, `createdAt`, `updatedAt` with `@EnableMongoAuditing`
+  - `@Indexed` on `hotelId`; `@Min(1) @Max(5)` on rating; `@NotBlank` on required fields
+  - `@Builder @NoArgsConstructor @AllArgsConstructor` on `ReviewDocument`
+  - `ReviewRepository`: `findByHotelIdOrderByCreatedAtDesc`, `findByGuestId`, `existsByHotelIdAndGuestId`, `findByHotelId`
 - [ ] 6.3 Implement `ReviewService`
-  - `createReview(request, guestId)`:
-    1. Verify guest actually stayed (call Booking Service)
-    2. Save review
-    3. Publish `review.created` to Kafka
-  - `getReviewsByHotel(hotelId)` — paginated, sorted by date
-  - `getMyReviews(guestId)`
-  - On `review.analyzed` event: update `sentiment` and `tags` fields
-  - On `review.analyzed`: recalculate hotel average rating → call Hotel Service
+  - Prerequisites done ✅:
+    - `@EnableFeignClients` on `ReviewServiceApplication`
+    - `application.yml` + `application-docker.yml` — `feign.hotel-service.url` added
+    - `client/HotelServiceClient` — `PATCH /api/v1/hotels/{id}/rating`
+    - `client/dto/UpdateRatingRequest`
+  - Still needed:
+    - `security/HeaderAuthenticationFilter` + `UserPrincipal` + `SecurityConfig`
+    - `client/BookingServiceClient` — `GET /api/v1/bookings/verify-stay`
+    - `client/dto/VerifyStayResponse`
+    - `dto/CreateReviewRequest`, `dto/ReviewResponse`
+    - `mapper/ReviewMapper`
+    - `exception/` — `ResourceNotFoundException`, `ForbiddenException`, `UnverifiedStayException`, `AlreadyReviewedException`, `GlobalExceptionHandler`
+    - `service/ReviewService` (interface) + `service/ReviewServiceImpl`
 - [ ] 6.4 Create `ReviewController` (`/api/v1/reviews`)
   - `POST /` — submit review (GUEST only)
-  - `GET /hotel/{hotelId}` — hotel reviews
+  - `GET /hotel/{hotelId}` — hotel reviews (paginated)
   - `GET /my` — my reviews
   - `DELETE /{id}` — owner or ADMIN
-- [ ] 6.5 Implement `ReviewEventProducer` and `ReviewAnalyzedConsumer` (Kafka)
+- [x] 6.5 Implement `ReviewEventProducer` and `ReviewAnalyzedConsumer` (Kafka)
+  - `ReviewCreatedEvent` — `{ reviewId, hotelId, guestId, rating, body }`
+  - `ReviewAnalyzedEvent` — `{ reviewId, hotelId, sentiment, tags }`
+  - `ReviewEventProducer` — publishes `review.created` keyed by `reviewId`
+  - `ReviewAnalyzedConsumer` — updates sentiment/tags → recalculates avg rating → calls hotel-service
+  - `KafkaConfig` — declares `review.created` and `review.analyzed` topics
+
+### Hotel-service additions (done alongside Phase 6) ✅
+  - `dto/UpdateRatingRequest` — `{ averageRating, reviewCount }`
+  - `HotelService.updateRating` + `HotelServiceImpl.updateRating`
+  - `PATCH /api/v1/hotels/{id}/rating` in `HotelController` (`@RequestBody`)
+  - Unit + IT tests added for `updateRating`
 
 ### Key Files
 ```
 review-service/src/main/java/com/smartstay/review/
-  document/Review.java
-  repository/ReviewRepository.java
-  service/ReviewService.java
-  controller/ReviewController.java
-  event/ReviewEventProducer.java
-  event/ReviewAnalyzedConsumer.java
+  document/ReviewDocument.java            ✅ done
+  repository/ReviewRepository.java        ✅ done
+  event/ReviewCreatedEvent.java           ✅ done
+  event/ReviewAnalyzedEvent.java          ✅ done
+  event/ReviewEventProducer.java          ✅ done
+  event/ReviewAnalyzedConsumer.java       ✅ done
+  client/HotelServiceClient.java          ✅ done
+  client/dto/UpdateRatingRequest.java     ✅ done
+  config/KafkaConfig.java                 ✅ done
+  security/HeaderAuthenticationFilter.java  ← next
+  security/UserPrincipal.java               ← next
+  config/SecurityConfig.java                ← next
+  client/BookingServiceClient.java          ← next
+  client/dto/VerifyStayResponse.java        ← next
+  dto/CreateReviewRequest.java              ← next
+  dto/ReviewResponse.java                   ← next
+  mapper/ReviewMapper.java                  ← next
+  exception/GlobalExceptionHandler.java     ← next
+  service/ReviewService.java                ← next
+  service/ReviewServiceImpl.java            ← next
+  controller/ReviewController.java          ← next
 ```
 
 ---

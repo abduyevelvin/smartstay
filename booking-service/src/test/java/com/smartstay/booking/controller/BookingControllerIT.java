@@ -330,6 +330,29 @@ class BookingControllerIT {
                .andExpect(status().isForbidden());
     }
 
+    @Test
+    void getHotelBookings_withStatusFilter_returnsOnlyMatchingStatus() throws Exception {
+        saveBooking("room-1", HOTEL_ID, UUID.randomUUID(), CHECK_IN, CHECK_OUT, BookingStatus.CONFIRMED);
+        saveBooking("room-2", HOTEL_ID, UUID.randomUUID(), CHECK_IN, CHECK_OUT, BookingStatus.CONFIRMED);
+        saveBooking("room-3", HOTEL_ID, UUID.randomUUID(), CHECK_IN, CHECK_OUT, BookingStatus.CANCELLED);
+
+        mockMvc.perform(get("/api/v1/bookings/hotel/{hotelId}", HOTEL_ID)
+                                .param("status", "CONFIRMED")
+                                .header("X-User-Id", UUID.randomUUID().toString())
+                                .header("X-User-Email", "mgr@test.com")
+                                .header("X-User-Role", "HOTEL_MANAGER"))
+               .andExpect(status().isOk())
+               .andExpect(jsonPath("$.length()").value(2));
+
+        mockMvc.perform(get("/api/v1/bookings/hotel/{hotelId}", HOTEL_ID)
+                                .param("status", "CANCELLED")
+                                .header("X-User-Id", UUID.randomUUID().toString())
+                                .header("X-User-Email", "mgr@test.com")
+                                .header("X-User-Role", "HOTEL_MANAGER"))
+               .andExpect(status().isOk())
+               .andExpect(jsonPath("$.length()").value(1));
+    }
+
     // ── GET /api/v1/bookings/availability ─────────────────────────────────────
 
     @Test
@@ -362,6 +385,58 @@ class BookingControllerIT {
                                                             .param("checkOut", CHECK_OUT.toString()))
                .andExpect(status().isOk())
                .andExpect(jsonPath("$.available").value(true));
+    }
+
+    // ── GET /api/v1/bookings/verify-stay ─────────────────────────────────────
+
+    @Test
+    void verifyStay_hasPastConfirmedBooking_returnsTrue() throws Exception {
+        // checkOut is 5 days ago — counts as a completed stay
+        saveBooking(ROOM_ID, HOTEL_ID, GUEST_ID,
+                LocalDate.now().minusDays(10), LocalDate.now().minusDays(5),
+                BookingStatus.CONFIRMED);
+
+        mockMvc.perform(get("/api/v1/bookings/verify-stay")
+                                .param("guestId", GUEST_ID.toString())
+                                .param("hotelId", HOTEL_ID))
+               .andExpect(status().isOk())
+               .andExpect(jsonPath("$.isStayed").value(true));
+    }
+
+    @Test
+    void verifyStay_noPastBooking_returnsFalse() throws Exception {
+        // No booking at all for this guest+hotel
+        mockMvc.perform(get("/api/v1/bookings/verify-stay")
+                                .param("guestId", GUEST_ID.toString())
+                                .param("hotelId", HOTEL_ID))
+               .andExpect(status().isOk())
+               .andExpect(jsonPath("$.isStayed").value(false));
+    }
+
+    @Test
+    void verifyStay_cancelledBookingIgnored_returnsFalse() throws Exception {
+        // Booking was cancelled — should not count as a stay
+        saveBooking(ROOM_ID, HOTEL_ID, GUEST_ID,
+                LocalDate.now().minusDays(10), LocalDate.now().minusDays(5),
+                BookingStatus.CANCELLED);
+
+        mockMvc.perform(get("/api/v1/bookings/verify-stay")
+                                .param("guestId", GUEST_ID.toString())
+                                .param("hotelId", HOTEL_ID))
+               .andExpect(status().isOk())
+               .andExpect(jsonPath("$.isStayed").value(false));
+    }
+
+    @Test
+    void verifyStay_futureBookingIgnored_returnsFalse() throws Exception {
+        // Check-out is in the future — guest hasn't stayed yet
+        saveBooking(ROOM_ID, HOTEL_ID, GUEST_ID, CHECK_IN, CHECK_OUT, BookingStatus.CONFIRMED);
+
+        mockMvc.perform(get("/api/v1/bookings/verify-stay")
+                                .param("guestId", GUEST_ID.toString())
+                                .param("hotelId", HOTEL_ID))
+               .andExpect(status().isOk())
+               .andExpect(jsonPath("$.isStayed").value(false));
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

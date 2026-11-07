@@ -1,0 +1,15 @@
+# ── Docker profile — overrides application.yml when SPRING_PROFILES_ACTIVE=docker ──
+# Hostnames match the docker-compose.yml service names.
+
+spring:
+  data:
+    mongodb:
+      uri: mongodb://${MONGO_USER}:${MONGO_PASSWORD}@mongodb:27017/review_db?authSource=admin
+  kafka:
+    bootstrap-servers: kafka:9092
+
+feign:
+  booking-service:
+    url: http://booking-service:8083
+  hotel-service:
+    url: http://hotel-service:8082

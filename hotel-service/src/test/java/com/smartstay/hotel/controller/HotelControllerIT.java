@@ -25,6 +25,7 @@ import com.smartstay.hotel.dto.CreateHotelRequest;
 import com.smartstay.hotel.dto.CreateRoomRequest;
 import com.smartstay.hotel.dto.HotelResponse;
 import com.smartstay.hotel.dto.RoomResponse;
+import com.smartstay.hotel.dto.UpdateRatingRequest;
 import com.smartstay.hotel.enums.Type;
 import com.smartstay.hotel.repository.HotelRepository;
 import com.smartstay.hotel.repository.RoomRepository;
@@ -234,6 +235,39 @@ class HotelControllerIT {
                 String.class);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+    }
+
+    // ── PATCH /api/v1/hotels/{id}/rating ─────────────────────────────────────
+
+    @Test
+    void updateRating_shouldReturn204AndPersistChanges() {
+        HotelResponse created = createHotel("mgr-1");
+        var request = new UpdateRatingRequest(4.5, 10);
+
+        ResponseEntity<Void> response = restTemplate.exchange(
+                "/api/v1/hotels/" + created.id() + "/rating",
+                HttpMethod.PATCH,
+                new HttpEntity<>(request),
+                Void.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+
+        var updated = hotelRepository.findById(created.id()).orElseThrow();
+        assertThat(updated.getAverageRating()).isEqualTo(4.5);
+        assertThat(updated.getReviewCount()).isEqualTo(10);
+    }
+
+    @Test
+    void updateRating_shouldReturn404WhenHotelNotFound() {
+        var request = new UpdateRatingRequest(4.5, 10);
+
+        ResponseEntity<String> response = restTemplate.exchange(
+                "/api/v1/hotels/nonexistent-id/rating",
+                HttpMethod.PATCH,
+                new HttpEntity<>(request),
+                String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

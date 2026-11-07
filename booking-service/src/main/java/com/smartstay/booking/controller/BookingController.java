@@ -23,6 +23,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.smartstay.booking.dto.BookingResponse;
 import com.smartstay.booking.dto.CreateBookingRequest;
+import com.smartstay.booking.enums.BookingStatus;
 import com.smartstay.booking.security.UserPrincipal;
 import com.smartstay.booking.service.BookingService;
 
@@ -55,8 +56,10 @@ public class BookingController {
 
     @GetMapping("/hotel/{hotelId}")
     @PreAuthorize("hasRole('HOTEL_MANAGER')")
-    public ResponseEntity<java.util.List<BookingResponse>> getHotelBookings(@PathVariable String hotelId) {
-        return ResponseEntity.ok(bookingService.getHotelBookings(hotelId));
+    public ResponseEntity<java.util.List<BookingResponse>> getHotelBookings(@PathVariable String hotelId,
+                                                                            @RequestParam(
+                                                                                    required = false) BookingStatus status) {
+        return ResponseEntity.ok(bookingService.getHotelBookings(hotelId, status));
     }
 
     @PutMapping("/{id}/cancel")
@@ -81,5 +84,11 @@ public class BookingController {
 
         boolean available = bookingService.checkRoomAvailability(roomId, checkIn, checkOut);
         return ResponseEntity.ok(Map.of("available", available));
+    }
+
+    @GetMapping("verify-stay")
+    public ResponseEntity<Map<String, Boolean>> verifyStay(@RequestParam UUID guestId,
+                                                           @RequestParam String hotelId) {
+        return ResponseEntity.ok(Map.of("isStayed", bookingService.guestIsStayed(guestId, hotelId)));
     }
 }

@@ -168,4 +168,17 @@ public class HotelServiceImpl implements HotelService {
                              .map(roomMapper::toResponse)
                              .toList();
     }
+
+    @Override
+    public void updateRating(final String hotelId,
+                             final double averageRating,
+                             final int reviewCount) {
+        final var hotel = hotelRepository.findById(hotelId)
+                                         .orElseThrow(() -> new ResourceNotFoundException(
+                                                 "Hotel not found with id: " + hotelId));
+        hotel.setAverageRating(averageRating);
+        hotel.setReviewCount(reviewCount);
+        hotelRepository.save(hotel);
+        log.info("Rating updated — hotelId={}, avgRating={}, reviewCount={}", hotelId, averageRating, reviewCount);
+    }
 }

@@ -9,6 +9,7 @@ import org.springframework.data.domain.Pageable;
 
 import com.smartstay.booking.dto.BookingResponse;
 import com.smartstay.booking.dto.CreateBookingRequest;
+import com.smartstay.booking.enums.BookingStatus;
 
 public interface BookingService {
 
@@ -23,9 +24,13 @@ public interface BookingService {
     Page<BookingResponse> getMyBookings(UUID guestId,
                                         Pageable pageable);
 
-    List<BookingResponse> getHotelBookings(String hotelId);
+    List<BookingResponse> getHotelBookings(String hotelId,
+                                           BookingStatus status);
 
     boolean checkRoomAvailability(String roomId,
                                   LocalDate checkIn,
                                   LocalDate checkOut);
+
+    boolean guestIsStayed(UUID guestId,
+                          String hotelId);
 }
