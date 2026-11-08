@@ -1,0 +1,112 @@
+# ─────────────────────────────────────────────────────────────────────────────
+#  docker-compose.override.yml — Development Mode
+#
+#  Docker Compose automatically merges this file with docker-compose.yml
+#  when you run `docker compose up`. No flag needed.
+#
+#  What this file adds:
+#    1. Remote debugging (JDWP) — connect IntelliJ/VSCode debugger to any service
+#    2. DEBUG log level for com.smartstay.* — verbose app logs without changing source
+#    3. Hot JAR swap — mount locally-built JARs so you don't need to rebuild Docker
+#       images on every change. Workflow:
+#         a) `make build-service SERVICE=auth-service`
+#         b) `docker compose restart auth-service`
+#       The restarted container picks up the new JAR from the volume mount instantly.
+#
+#  Debug ports (host → container internal 5005):
+#    api-gateway       localhost:5080
+#    auth-service      localhost:5081
+#    hotel-service     localhost:5082
+#    booking-service   localhost:5083
+#    review-service    localhost:5084
+#    ai-assistant      localhost:5085
+#    notification      localhost:5086
+# ─────────────────────────────────────────────────────────────────────────────
+
+version: '3.9'
+
+services:
+
+  # ── API Gateway ──────────────────────────────────────────────────────────────
+  api-gateway:
+    environment:
+      JAVA_TOOL_OPTIONS: >-
+        -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005
+      LOGGING_LEVEL_ROOT: INFO
+      LOGGING_LEVEL_COM_SMARTSTAY: DEBUG
+    ports:
+      - "5080:5005"   # remote debug
+    volumes:
+      - ./api-gateway/target/api-gateway-1.0.0-SNAPSHOT.jar:/app/app.jar
+
+  # ── Auth Service ─────────────────────────────────────────────────────────────
+  auth-service:
+    environment:
+      JAVA_TOOL_OPTIONS: >-
+        -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005
+      LOGGING_LEVEL_ROOT: INFO
+      LOGGING_LEVEL_COM_SMARTSTAY: DEBUG
+    ports:
+      - "5081:5005"
+    volumes:
+      - ./auth-service/target/auth-service-1.0.0-SNAPSHOT.jar:/app/app.jar
+
+  # ── Hotel Service ─────────────────────────────────────────────────────────────
+  hotel-service:
+    environment:
+      JAVA_TOOL_OPTIONS: >-
+        -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005
+      LOGGING_LEVEL_ROOT: INFO
+      LOGGING_LEVEL_COM_SMARTSTAY: DEBUG
+    ports:
+      - "5082:5005"
+    volumes:
+      - ./hotel-service/target/hotel-service-1.0.0-SNAPSHOT.jar:/app/app.jar
+
+  # ── Booking Service ──────────────────────────────────────────────────────────
+  booking-service:
+    environment:
+      JAVA_TOOL_OPTIONS: >-
+        -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005
+      LOGGING_LEVEL_ROOT: INFO
+      LOGGING_LEVEL_COM_SMARTSTAY: DEBUG
+    ports:
+      - "5083:5005"
+    volumes:
+      - ./booking-service/target/booking-service-1.0.0-SNAPSHOT.jar:/app/app.jar
+
+  # ── Review Service ───────────────────────────────────────────────────────────
+  review-service:
+    environment:
+      JAVA_TOOL_OPTIONS: >-
+        -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005
+      LOGGING_LEVEL_ROOT: INFO
+      LOGGING_LEVEL_COM_SMARTSTAY: DEBUG
+    ports:
+      - "5084:5005"
+    volumes:
+      - ./review-service/target/review-service-1.0.0-SNAPSHOT.jar:/app/app.jar
+
+  # ── AI Assistant Service ─────────────────────────────────────────────────────
+  ai-assistant-service:
+    environment:
+      JAVA_TOOL_OPTIONS: >-
+        -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005
+      LOGGING_LEVEL_ROOT: INFO
+      LOGGING_LEVEL_COM_SMARTSTAY: DEBUG
+    ports:
+      - "5085:5005"
+    volumes:
+      - ./ai-assistant-service/target/ai-assistant-service-1.0.0-SNAPSHOT.jar:/app/app.jar
+
+  # ── Notification Service ─────────────────────────────────────────────────────
+  notification-service:
+    environment:
+      JAVA_TOOL_OPTIONS: >-
+        -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005
+      LOGGING_LEVEL_ROOT: INFO
+      LOGGING_LEVEL_COM_SMARTSTAY: DEBUG
+    ports:
+      - "5086:5005"
+    volumes:
+      - ./notification-service/target/notification-service-1.0.0-SNAPSHOT.jar:/app/app.jar

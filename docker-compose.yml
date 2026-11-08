@@ -195,6 +195,14 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+      auth-service:
+        condition: service_healthy
+      hotel-service:
+        condition: service_healthy
+      booking-service:
+        condition: service_healthy
+      review-service:
+        condition: service_healthy
     environment:
       SPRING_PROFILES_ACTIVE: docker
       REDIS_PASSWORD: ${REDIS_PASSWORD}
@@ -205,6 +213,12 @@ services:
       - ./certs:/certs:ro
     networks:
       - smartstay-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
 
   # ── Auth Service ───────────────────────────
   auth-service:
@@ -227,6 +241,12 @@ services:
       - ./certs:/certs:ro
     networks:
       - smartstay-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
 
   # ── Hotel Service ──────────────────────────
   hotel-service:
@@ -245,6 +265,12 @@ services:
       - "8082:8082"
     networks:
       - smartstay-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8082/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
 
   # ── Booking Service ────────────────────────
   booking-service:
@@ -257,6 +283,8 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
+      hotel-service:
+        condition: service_healthy   # booking-service calls hotel-service via Feign
     environment:
       SPRING_PROFILES_ACTIVE: docker
       POSTGRES_BOOKING_USER: ${POSTGRES_BOOKING_USER}
@@ -265,6 +293,12 @@ services:
       - "8083:8083"
     networks:
       - smartstay-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8083/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
 
   # ── Review Service ─────────────────────────
   review-service:
@@ -277,6 +311,8 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
+      booking-service:
+        condition: service_healthy   # review-service calls booking-service to verify stay
     environment:
       SPRING_PROFILES_ACTIVE: docker
       MONGO_REVIEW_USER: ${MONGO_REVIEW_USER}
@@ -285,6 +321,12 @@ services:
       - "8084:8084"
     networks:
       - smartstay-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8084/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
 
   # ── AI Assistant Service ───────────────────
   ai-assistant-service:

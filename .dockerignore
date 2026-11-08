@@ -1,0 +1,30 @@
+# ─────────────────────────────────────────────────────────
+#  .dockerignore — files excluded from the Docker build context
+#  Keeps the build context lean and avoids leaking secrets.
+# ─────────────────────────────────────────────────────────
+
+# Maven build output (each service builds inside the container)
+**/target/
+
+# Git metadata
+.git/
+.gitignore
+
+# IDE files
+.idea/
+*.iml
+*.iws
+*.ipr
+.vscode/
+
+# Local secrets — NEVER send to Docker daemon
+.env
+certs/
+
+# Docs and scripts not needed in the build
+*.md
+scripts/
+
+# OS files
+.DS_Store
+Thumbs.db

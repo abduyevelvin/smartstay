@@ -652,39 +652,73 @@ notification-service/src/main/java/com/smartstay/notification/
 
 ---
 
-## Phase 8 — Docker Compose Full Stack
+## Phase 8 — Docker Compose Full Stack ✅ DONE
 
 **Goal**: One `docker-compose up` brings everything up locally.
 
+> **Completed**: 2026-11-08
+
 ### Steps
 
-- [ ] 8.1 Write `Dockerfile` for each service (multi-stage build):
-  ```dockerfile
-  FROM eclipse-temurin:21-jdk AS build
-  WORKDIR /app
-  COPY . .
-  RUN ./mvnw package -pl <service-name> -DskipTests
+- [x] 8.1 Write `Dockerfile` for each service (multi-stage build)
+  - `maven:3.9-eclipse-temurin-21` build stage (Maven + JDK 21 in one image)
+  - `eclipse-temurin:21-jre-jammy` runtime stage (lean JRE, ~200MB smaller)
+  - `curl` installed in runtime for `/actuator/health` health checks
+  - Optimized layer caching: all `pom.xml` files copied first → `dependency:go-offline` → source copy → `package`
+  - Build context is repo root (`context: .`) so each Dockerfile can reference the parent POM
+- [x] 8.2 Finalize `docker-compose.yml` with all 7 services + infra
+  - Health checks added to all 5 implemented app services (`/actuator/health`, `start_period: 60s`)
+  - Inter-service `depends_on` with `condition: service_healthy`:
+    - `booking-service` waits for `hotel-service` (Feign calls on booking creation)
+    - `review-service` waits for `booking-service` (Feign calls to verify stay)
+    - `api-gateway` waits for all 4 downstream services
+  - Named volumes for DB persistence (already in place from Phase 0)
+  - `.env` file for all secrets (already in place from Phase 0)
+  - **Bug fixed**: `booking-service/application-docker.yml` used `postgres-booking:5433` — corrected to `:5432` (5433 is the host-mapped port; inside the Docker network the container listens on 5432)
+  - **Bug fixed**: `review-service/application-docker.yml` used `${MONGO_USER}/${MONGO_PASSWORD}` — corrected to `${MONGO_REVIEW_USER}/${MONGO_REVIEW_PASSWORD}` to match docker-compose env vars
+- [x] 8.3 Add `docker-compose.override.yml` for dev mode
+  - JDWP remote debugging on `*:5005` inside each container
+  - Host debug ports: gateway=5080, auth=5081, hotel=5082, booking=5083, review=5084, ai=5085, notification=5086
+  - `LOGGING_LEVEL_COM_SMARTSTAY: DEBUG` for verbose app logs
+  - Hot JAR swap via volume mounts — `make build-service SERVICE=xxx` + `docker compose restart xxx`
+- [x] 8.4 `Makefile` with shortcuts — already complete from Phase 0 (up/down/build/logs/fresh/certs/infra-up/infra-down/test/build-service/logs-service/test-service)
+- [x] 8.5 `.dockerignore` added — excludes `**/target/`, `.git/`, `.env`, `certs/`, IDE files
 
-  FROM eclipse-temurin:21-jre
-  COPY --from=build /app/<service>/target/*.jar app.jar
-  ENTRYPOINT ["java","-jar","app.jar"]
-  ```
-- [ ] 8.2 Finalize `docker-compose.yml` with all 7 services + infra
-  - Health checks on all DB/Kafka containers
-  - `depends_on` with `condition: service_healthy`
-  - Named volumes for DB persistence
-  - `.env` file for all secrets
-- [ ] 8.3 Add `docker-compose.override.yml` for dev mode
-  - Mount local JARs for faster iteration
-  - Expose internal ports for debugging
-- [ ] 8.4 Add `Makefile` with shortcuts:
-  ```makefile
-  make up       → docker-compose up -d
-  make down     → docker-compose down
-  make build    → mvn clean package -DskipTests
-  make logs     → docker-compose logs -f
-  make fresh    → down + remove volumes + up
-  ```
+### What was created/changed
+```
+smartstay/
+├── .dockerignore                                    ✅ new
+├── docker-compose.yml                               ✅ updated (health checks, depends_on)
+├── docker-compose.override.yml                      ✅ new (dev mode)
+├── api-gateway/Dockerfile                           ✅ new
+├── auth-service/Dockerfile                          ✅ new
+├── hotel-service/Dockerfile                         ✅ new
+├── booking-service/Dockerfile                       ✅ new
+│   └── src/main/resources/application-docker.yml   ✅ bug fix (port 5433→5432)
+├── review-service/Dockerfile                        ✅ new
+│   └── src/main/resources/application-docker.yml   ✅ bug fix (MONGO_USER→MONGO_REVIEW_USER)
+├── ai-assistant-service/Dockerfile                  ✅ new (ready for Phase 5)
+└── notification-service/Dockerfile                  ✅ new (ready for Phase 7)
+```
+
+### To bring the full stack up (after Phase 5 + 7 are done)
+```bash
+# One time: generate RSA keys if not done yet
+make certs
+
+# Build all service JARs
+make build
+
+# Start everything
+make up
+
+# Or for a fresh start (wipes all DB data)
+make fresh
+```
+
+### ⚠️ Phases 5 & 7 not yet implemented
+Until `ai-assistant-service` (Phase 5) and `notification-service` (Phase 7) are coded,
+comment them out in `docker-compose.yml` before running `make up`.
 
 ---
 

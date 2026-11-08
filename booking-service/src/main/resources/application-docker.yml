@@ -3,7 +3,10 @@
 
 spring:
   datasource:
-    url: jdbc:postgresql://postgres-booking:5433/booking_db
+    # Port 5432 = postgres-booking's INTERNAL container port.
+    # The 5433 in docker-compose.yml is the HOST-side mapping (5433→5432).
+    # Other containers on the same Docker network always use the internal port.
+    url: jdbc:postgresql://postgres-booking:5432/booking_db
   kafka:
     bootstrap-servers: kafka:9092
 

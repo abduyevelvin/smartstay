@@ -4,7 +4,9 @@
 spring:
   data:
     mongodb:
-      uri: mongodb://${MONGO_USER}:${MONGO_PASSWORD}@mongodb:27017/review_db?authSource=admin
+      # MONGO_REVIEW_USER / MONGO_REVIEW_PASSWORD are injected by docker-compose.yml.
+      # The dedicated review_db user was created by infra/init-mongo.js at first start.
+      uri: mongodb://${MONGO_REVIEW_USER}:${MONGO_REVIEW_PASSWORD}@mongodb:27017/review_db?authSource=admin
   kafka:
     bootstrap-servers: kafka:9092
 
