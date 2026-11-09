@@ -1,0 +1,9 @@
+# ── Docker profile — overrides application.yml when SPRING_PROFILES_ACTIVE=docker ──
+# Hostnames match the docker-compose.yml service names.
+
+spring:
+  kafka:
+    bootstrap-servers: kafka:9092
+  mail:
+    host: ${MAIL_HOST:mailhog}
+    port: ${MAIL_PORT:1025}
