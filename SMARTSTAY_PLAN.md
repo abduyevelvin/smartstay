@@ -462,9 +462,11 @@ src/test/resources/
 
 ---
 
-## Phase 5 — AI Assistant Service
+## Phase 5 — AI Assistant Service ✅ DONE
 
 **Goal**: Smart hotel recommendations, RAG-based Q&A chatbot, conversational booking help.
+
+> **Completed**: 2026-11-10
 
 ### Service Details
 - Port: `8085`
@@ -472,56 +474,102 @@ src/test/resources/
 - AI: Spring AI 1.0.0 with OpenAI (via LiteLLM — already configured)
 - Calls: Hotel Service (fetch hotel data for indexing)
 
+### Spring AI 1.0.0 API notes (differs from pre-release docs)
+- `InMemoryChatMemory` → replaced by `MessageWindowChatMemory` + `InMemoryChatMemoryRepository`
+- `SearchRequest.query(...).withTopK(n)` → `SearchRequest.builder().query(...).topK(n).build()`
+- `Document::getContent` → `Document::getText`; constructor replaced by `Document.builder().id().text().metadata().build()`
+- `new MessageChatMemoryAdvisor(mem, sessionId, n)` → `MessageChatMemoryAdvisor.builder(mem).conversationId(sessionId).build()`
+- `ChatMemory.get(id, n)` → `ChatMemory.get(id)` (window size set on `MessageWindowChatMemory`)
+- `InMemoryChatMemory` package: `org.springframework.ai.chat.memory` (in `spring-ai-model`, not `spring-ai-core`)
+
 ### Steps
 
-- [ ] 5.1 Create `ai-assistant-service/` Maven module
-  - Dependencies: `spring-ai-starter-model-openai`, `spring-ai-vector-store-pgvector`,
-    `spring-boot-starter-web`, `spring-kafka` (consume review events),
-    `openfeign`, `lombok`
-- [ ] 5.2 Configure `application.yml`
-  - Inherit OpenAI LiteLLM config from existing `spring-ai-demo`
-  - pgvector datasource config
-  - Embedding model config
-- [ ] 5.3 Set up pgvector schema
-  - Enable `vector` extension in PostgreSQL
-  - Spring AI auto-creates `vector_store` table
-- [ ] 5.4 Implement `HotelIndexingService`
-  - Fetches all hotels from hotel-service via Feign
-  - Converts hotel + room data to `Document` objects
-  - Ingests into pgvector via `VectorStore`
-  - Re-index triggered on schedule (`@Scheduled`) or Kafka event
-- [ ] 5.5 Implement `RecommendationService`
-  - Takes user preference text: *"I want a beachfront hotel in Baku with a pool, 2 adults"*
-  - Embeds query → similarity search in VectorStore → retrieve top-K hotels
-  - Pass retrieved context + query to ChatModel
-  - Returns structured recommendation list
-- [ ] 5.6 Implement `ChatAssistantService` (RAG chatbot)
-  - Stateful conversation using `ChatMemory` (in-memory or Redis per sessionId)
-  - System prompt: *"You are a hotel booking assistant for SmartStay..."*
-  - User message → embed → retrieve relevant hotel docs → augmented prompt → response
-  - Handle booking intent: *"I want to book this room"* → return structured booking suggestion
-- [ ] 5.7 Implement `ReviewAnalysisService` (Kafka consumer)
-  - Listens to `review.created` topic
-  - Sends review text to AI: extract sentiment (POSITIVE/NEUTRAL/NEGATIVE) + tags
-  - Publishes `review.analyzed` event with extracted metadata
-- [ ] 5.8 Create `AiController` (`/api/v1/ai`)
-  - `POST /recommend` — `{ preferences: "..." }` → hotel recommendations
-  - `POST /chat` — `{ message: "...", sessionId: "..." }` → chat response
-  - `GET /chat/{sessionId}/history` — conversation history
-  - `POST /hotels/{hotelId}/summary` — AI-generated hotel summary
-- [ ] 5.9 Write tests with MockChatModel
+- [x] 5.1 Create `ai-assistant-service/` Maven module
+  - Dependencies: `spring-ai-starter-model-openai`, `spring-ai-starter-vector-store-pgvector`,
+    `spring-boot-starter-web`, `spring-boot-starter-data-jpa`, `postgresql`,
+    `spring-kafka`, `spring-cloud-starter-openfeign`, `spring-boot-starter-validation`,
+    `spring-boot-starter-actuator`, `lombok`
+  - Test deps: `spring-boot-starter-test`, `spring-kafka-test`
+- [x] 5.2 Configure `application.yml` + `application-docker.yml`
+  - pgvector: `postgres-vector:5432` (docker) / `localhost:5434` (local)
+  - Spring AI OpenAI config via LiteLLM (`LITELLM_BASE_URL`, `LITELLM_API_KEY`)
+  - `spring.jpa.hibernate.ddl-auto: none` — Spring AI manages `vector_store` table
+  - Kafka consumer + producer config
+- [x] 5.3 `AiConfig.java` — core beans
+  - `ChatClient` with `defaultSystem` prompt
+  - `PgVectorStore` with `dimensions(1536)`, `COSINE_DISTANCE`, `initializeSchema(true)`
+  - `MessageWindowChatMemory` with `InMemoryChatMemoryRepository`, `maxMessages(10)`
+  - `@EnableFeignClients`, `@EnableScheduling`
+- [x] 5.4 `HotelIndexingService` + `HotelIndexingScheduler`
+  - `HotelServiceClient` (Feign): `getAllHotels(@SpringQueryMap HotelSearchParams)`, `getHotelById`, `getRooms`
+  - `HotelSearchParams` record: `city, country, minStars, page, size`
+  - `HotelSummary` DTO includes `starRating, description, amenities, averageRating`
+  - `HotelPage` wrapper for Spring Data Page JSON (`content, totalPages, totalElements`)
+  - `HotelIndexingServiceImpl`: `indexHotel()` uses `Document.builder()`, `reindexAll()` fetches all
+  - `HotelIndexingScheduler`: separate `@Component` with `@Scheduled` — calls `reindexAll()`
+- [x] 5.5 `RecommendationService`
+  - `SearchRequest.builder().query(...).topK(5).build()` → similarity search
+  - Empty-doc guard → fallback message (no LLM call)
+  - `summarizeHotel(hotelId)` → fetches hotel+rooms via Feign, asks LLM for 2-3 sentence summary
+- [x] 5.6 `ChatAssistantService` (RAG chatbot)
+  - `MessageChatMemoryAdvisor.builder(chatMemory).conversationId(sessionId).build()`
+  - `getHistory(sessionId)` → `chatMemory.get(sessionId)`, filters SYSTEM messages, maps to `MessageDto`
+- [x] 5.7 `ReviewAnalysisConsumer` (Kafka)
+  - `Sentiment` enum (`POSITIVE|NEUTRAL|NEGATIVE`) with `@JsonCreator` for case-insensitive LLM output
+  - `@RetryableTopic(attempts=3, backoff=2s×2)` — retries on LLM failure without blocking partition
+  - `@DltHandler` — logs permanently failed events to `review.created.DLT`
+  - `.entity(ReviewAnalysis.class)` — Spring AI structured output, no manual JSON parsing
+- [x] 5.8 `AiController` (`/api/v1/ai`)
+  - `POST /recommend` — `RecommendRequest { preferences }` → `{ recommendation }`
+  - `POST /chat` — `ChatRequest { sessionId, message }` → `{ reply, sessionId }`
+  - `GET /chat/{sessionId}/history` → `List<MessageDto>`
+  - `POST /hotels/{hotelId}/summary` → `{ hotelId, summary }`
+  - `GlobalExceptionHandler` — 400 for `@Valid`, 500 catch-all
+- [x] 5.9 Write tests (26 tests, 0 failures)
+  - `RecommendationServiceImplTest` — 5 unit tests (Mockito + deep stubs)
+  - `ChatAssistantServiceImplTest` — 5 unit tests (explicit mock chain — deep stubs fail on `advisors()` vararg)
+  - `HotelIndexingServiceImplTest` — 3 unit tests
+  - `ReviewAnalysisConsumerTest` — 4 unit tests (verifies exception propagates for retry)
+  - `AiControllerIT` — 9 `@WebMvcTest` tests
+  - `application-test.yml` — disables Kafka, DataSource, JPA, pgvector auto-config
 
 ### Key Files
 ```
 ai-assistant-service/src/main/java/com/smartstay/ai/
-  service/HotelIndexingService.java
-  service/RecommendationService.java
-  service/ChatAssistantService.java
-  service/ReviewAnalysisService.java
-  controller/AiController.java
-  config/AiConfig.java           ← ChatClient bean, VectorStore bean
-  config/ChatMemoryConfig.java
-  entity/...
+  config/AiConfig.java                         ✅ done
+  config/KafkaConfig.java                      ✅ done
+  client/HotelServiceClient.java               ✅ done
+  client/dto/HotelSearchParams.java            ✅ done
+  client/dto/HotelSummary.java                 ✅ done
+  client/dto/HotelPage.java                    ✅ done
+  client/dto/RoomSummary.java                  ✅ done
+  client/service/HotelIndexingService.java     ✅ done
+  client/service/HotelIndexingServiceImpl.java ✅ done
+  client/scheduler/HotelIndexingScheduler.java ✅ done
+  service/RecommendationService.java           ✅ done
+  service/RecommendationServiceImpl.java       ✅ done
+  service/ChatAssistantService.java            ✅ done
+  service/ChatAssistantServiceImpl.java        ✅ done
+  consumer/ReviewAnalysisConsumer.java         ✅ done
+  event/ReviewCreatedEvent.java                ✅ done
+  event/ReviewAnalyzedEvent.java               ✅ done
+  event/ReviewAnalysis.java                    ✅ done
+  event/Sentiment.java                         ✅ done
+  controller/AiController.java                 ✅ done
+  dto/RecommendRequest.java                    ✅ done
+  dto/ChatRequest.java                         ✅ done
+  dto/MessageDto.java                          ✅ done
+  exception/GlobalExceptionHandler.java        ✅ done
+src/main/resources/
+  application.yml                              ✅ done
+  application-docker.yml                       ✅ done
+src/test/
+  service/RecommendationServiceImplTest.java   ✅ done
+  service/ChatAssistantServiceImplTest.java    ✅ done
+  client/service/HotelIndexingServiceImplTest.java ✅ done
+  consumer/ReviewAnalysisConsumerTest.java     ✅ done
+  controller/AiControllerIT.java               ✅ done
+  resources/application-test.yml              ✅ done
 ```
 
 ---
@@ -619,9 +667,11 @@ review-service/src/main/java/com/smartstay/review/
 
 ---
 
-## Phase 7 — Notification Service
+## Phase 7 — Notification Service ✅ DONE
 
 **Goal**: Send email notifications on booking events. Async, fire-and-forget.
+
+> **Completed**: 2026-11-09
 
 ### Service Details
 - Port: `8086`
@@ -630,24 +680,37 @@ review-service/src/main/java/com/smartstay/review/
 
 ### Steps
 
-- [ ] 7.1 Create `notification-service/` Maven module
-  - Dependencies: `spring-kafka`, `spring-boot-starter-mail` (or JavaMailSender), `lombok`
-- [ ] 7.2 Implement `BookingEventConsumer`
+- [x] 7.1 Create `notification-service/` Maven module
+  - Dependencies: `spring-kafka`, `spring-boot-starter-mail`, `spring-boot-starter-thymeleaf`, `lombok`
+- [x] 7.2 Implement `BookingEventConsumer`
   - Listen `booking.confirmed` → send confirmation email
   - Listen `booking.cancelled` → send cancellation email
-- [ ] 7.3 Create HTML email templates (Thymeleaf)
+- [x] 7.3 Create HTML email templates (Thymeleaf)
   - `booking-confirmed.html`
   - `booking-cancelled.html`
-- [ ] 7.4 Implement `EmailService` (JavaMailSender)
-- [ ] 7.5 Configure retry + dead-letter topic for failed sends
+- [x] 7.4 Implement `EmailService` (JavaMailSender)
+- [x] 7.5 Write tests
+  - `EmailServiceImplTest` — unit tests with `JavaMailSender` mock
+  - `BookingEventConsumerIT` — `@EmbeddedKafka` integration test
 
 ### Key Files
 ```
 notification-service/src/main/java/com/smartstay/notification/
-  consumer/BookingEventConsumer.java
-  service/EmailService.java
-  template/booking-confirmed.html
-  template/booking-cancelled.html
+  consumer/BookingEventConsumer.java      ✅ done
+  service/EmailService.java              ✅ done
+  service/EmailServiceImpl.java          ✅ done
+  event/BookingConfirmedEvent.java       ✅ done
+  event/BookingCancelledEvent.java       ✅ done
+  config/KafkaConfig.java                ✅ done
+src/main/resources/
+  templates/booking-confirmed.html       ✅ done
+  templates/booking-cancelled.html       ✅ done
+  application.yml                        ✅ done
+  application-docker.yml                 ✅ done
+src/test/
+  consumer/BookingEventConsumerIT.java   ✅ done
+  service/EmailServiceImplTest.java      ✅ done
+  resources/application-test.yml        ✅ done
 ```
 
 ---
@@ -716,9 +779,9 @@ make up
 make fresh
 ```
 
-### ⚠️ Phases 5 & 7 not yet implemented
-Until `ai-assistant-service` (Phase 5) and `notification-service` (Phase 7) are coded,
-comment them out in `docker-compose.yml` before running `make up`.
+### ✅ All 7 services implemented
+All services including `ai-assistant-service` (Phase 5) and `notification-service` (Phase 7) are done.
+Run `make build && make up` to bring the full stack up.
 
 ---
 
@@ -787,18 +850,18 @@ comment them out in `docker-compose.yml` before running `make up`.
 ## Order of Implementation Summary
 
 ```
-Phase 0  →  Parent POM + Docker Compose infra
-Phase 1  →  Auth Service (JWT foundation)
-Phase 2  →  API Gateway (JWT validation + routing)
-Phase 3  →  Hotel Service (core domain, MongoDB)
-Phase 4  →  Booking Service (transactions, Kafka events)
-Phase 5  →  AI Assistant Service (RAG, recommendations, chatbot)
-Phase 6  →  Review Service (MongoDB + Kafka)
-Phase 7  →  Notification Service (email, Kafka consumer)
-Phase 8  →  Docker full stack assembly
-Phase 9  →  Frontend (Next.js)
+Phase 0  →  Parent POM + Docker Compose infra          ✅ DONE
+Phase 1  →  Auth Service (JWT foundation)               ✅ DONE
+Phase 2  →  API Gateway (JWT validation + routing)      ✅ DONE
+Phase 3  →  Hotel Service (core domain, MongoDB)        ✅ DONE
+Phase 4  →  Booking Service (transactions, Kafka)       ✅ DONE
+Phase 5  →  AI Assistant Service (RAG, chatbot)         ✅ DONE
+Phase 6  →  Review Service (MongoDB + Kafka)            ✅ DONE
+Phase 7  →  Notification Service (email, Kafka)         ✅ DONE
+Phase 8  →  Docker full stack assembly                  ✅ DONE
+Phase 9  →  Frontend (Next.js)                          ⬜ TODO
 ```
 
 ---
 
-*Last updated: 2026-11-04 — come back to this file whenever you get stuck, or ask Claude to continue from any specific phase.*
+*Last updated: 2026-11-10 — Phases 0–8 complete. Only Phase 9 (Frontend) remaining.*

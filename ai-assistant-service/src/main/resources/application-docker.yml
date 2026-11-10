@@ -1,0 +1,10 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://postgres-vector:5432/vector_db
+
+  kafka:
+    bootstrap-servers: kafka:9092
+
+feign:
+  hotel-service:
+    url: http://hotel-service:8082

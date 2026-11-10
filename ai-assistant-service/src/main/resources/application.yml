@@ -1,0 +1,44 @@
+spring:
+  application:
+    name: ai-assistant-service
+
+  datasource:
+    url: jdbc:postgresql://localhost:5434/vector_db
+    username: ${POSTGRES_VECTOR_USER}
+    password: ${POSTGRES_VECTOR_PASSWORD}
+
+  jpa:
+    hibernate:
+      ddl-auto: none        # Spring AI manages vector_store table via initializeSchema(true)
+    open-in-view: false
+
+  ai:
+    openai:
+      base-url: ${LITELLM_BASE_URL}
+      api-key: ${LITELLM_API_KEY}
+      chat:
+        options:
+          model: ${CHAT_MODEL:gpt-4o-mini}
+      embedding:
+        options:
+          model: ${EMBEDDING_MODEL:text-embedding-3-small}
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:29092}
+    consumer:
+      group-id: ai-assistant-service
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "com.smartstay.*"
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+
+server:
+  port: 8085
+
+feign:
+  hotel-service:
+    url: http://localhost:8082
