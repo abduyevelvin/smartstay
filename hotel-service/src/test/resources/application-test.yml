@@ -3,3 +3,8 @@ spring:
     mongodb:
       auto-index-creation: true
       # URI and database overridden via @DynamicPropertySource in IT tests
+  kafka:
+    bootstrap-servers: "localhost:9092"  # placeholder; overridden by @EmbeddedKafka at runtime
+
+app:
+  internal-secret: test-internal-secret

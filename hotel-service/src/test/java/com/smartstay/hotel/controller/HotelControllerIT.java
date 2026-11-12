@@ -14,6 +14,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.kafka.test.context.EmbeddedKafka;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -33,6 +34,7 @@ import com.smartstay.hotel.repository.RoomRepository;
 @Testcontainers
 @ActiveProfiles("test")
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@EmbeddedKafka(partitions = 1, topics = {"hotel.deleted"}, bootstrapServersProperty = "spring.kafka.bootstrap-servers")
 class HotelControllerIT {
 
     @Container
@@ -244,15 +246,13 @@ class HotelControllerIT {
         HotelResponse created = createHotel("mgr-1");
         var request = new UpdateRatingRequest(4.5, 10);
 
-        ResponseEntity<Void> response = restTemplate.exchange(
-                "/api/v1/hotels/" + created.id() + "/rating",
-                HttpMethod.PATCH,
-                new HttpEntity<>(request),
-                Void.class);
+        ResponseEntity<Void> response = restTemplate.exchange("/api/v1/hotels/" + created.id() + "/rating",
+                HttpMethod.PATCH, new HttpEntity<>(request, internalSecretHeaders()), Void.class);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
 
-        var updated = hotelRepository.findById(created.id()).orElseThrow();
+        var updated = hotelRepository.findById(created.id())
+                                     .orElseThrow();
         assertThat(updated.getAverageRating()).isEqualTo(4.5);
         assertThat(updated.getReviewCount()).isEqualTo(10);
     }
@@ -261,16 +261,56 @@ class HotelControllerIT {
     void updateRating_shouldReturn404WhenHotelNotFound() {
         var request = new UpdateRatingRequest(4.5, 10);
 
-        ResponseEntity<String> response = restTemplate.exchange(
-                "/api/v1/hotels/nonexistent-id/rating",
-                HttpMethod.PATCH,
-                new HttpEntity<>(request),
-                String.class);
+        ResponseEntity<String> response = restTemplate.exchange("/api/v1/hotels/nonexistent-id/rating",
+                HttpMethod.PATCH, new HttpEntity<>(request, internalSecretHeaders()), String.class);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
     }
 
+    @Test
+    void updateRating_shouldReturn403WhenSecretMissing() {
+        HotelResponse created = createHotel("mgr-1");
+        var request = new UpdateRatingRequest(4.5, 10);
+
+        // No X-Internal-Secret header at all
+        ResponseEntity<String> response = restTemplate.exchange("/api/v1/hotels/" + created.id() + "/rating",
+                HttpMethod.PATCH, new HttpEntity<>(request), String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    void updateRating_shouldReturn403WhenSecretWrong() {
+        HotelResponse created = createHotel("mgr-1");
+        var request = new UpdateRatingRequest(4.5, 10);
+
+        HttpHeaders badHeaders = new HttpHeaders();
+        badHeaders.set("X-Internal-Secret", "totally-wrong-secret");
+
+        ResponseEntity<String> response = restTemplate.exchange("/api/v1/hotels/" + created.id() + "/rating",
+                HttpMethod.PATCH, new HttpEntity<>(request, badHeaders), String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+
+        // Verify the DB was NOT modified
+        var unchanged = hotelRepository.findById(created.id())
+                                       .orElseThrow();
+        assertThat(unchanged.getAverageRating()).isEqualTo(0.0);
+        assertThat(unchanged.getReviewCount()).isEqualTo(0);
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    /**
+     * Must match app.internal-secret in application-test.yml
+     */
+    private static final String TEST_INTERNAL_SECRET = "test-internal-secret";
+
+    private HttpHeaders internalSecretHeaders() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("X-Internal-Secret", TEST_INTERNAL_SECRET);
+        return headers;
+    }
 
     private HttpHeaders managerHeaders(String managerId) {
         HttpHeaders headers = new HttpHeaders();

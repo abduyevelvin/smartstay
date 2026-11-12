@@ -23,4 +23,16 @@ public class KafkaConfig {
                            .replicas(1)
                            .build();
     }
+
+    /**
+     * Consumed by booking-service to cancel all active bookings when a hotel is deleted.
+     * Produced by hotel-service.
+     */
+    @Bean
+    public NewTopic hotelDeletedTopic() {
+        return TopicBuilder.name("hotel.deleted")
+                           .partitions(1)
+                           .replicas(1)
+                           .build();
+    }
 }

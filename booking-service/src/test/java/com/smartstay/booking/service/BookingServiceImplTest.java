@@ -8,6 +8,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -24,6 +26,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 
@@ -62,6 +65,7 @@ class BookingServiceImplTest {
 
     static final UUID GUEST_ID = UUID.fromString("11111111-1111-1111-1111-111111111111");
     static final UUID BOOKING_ID = UUID.fromString("22222222-2222-2222-2222-222222222222");
+    static final UUID MANAGER_ID = UUID.fromString("33333333-3333-3333-3333-333333333333");
     static final String HOTEL_ID = "hotel-abc";
     static final String ROOM_ID = "room-xyz";
     static final String EMAIL = "guest@smartstay.test";
@@ -78,10 +82,10 @@ class BookingServiceImplTest {
 
     @BeforeEach
     void setUp() {
-        hotelSummary = new HotelSummary(HOTEL_ID, "Grand Hotel", "Baku", "AZ");
+        hotelSummary = new HotelSummary(HOTEL_ID, "Grand Hotel", "Baku", "AZ", MANAGER_ID.toString());
         roomSummary = new RoomSummary(ROOM_ID, HOTEL_ID, 101, 150.0, 2, true);
         savedEntity = buildEntity(BOOKING_ID, GUEST_ID, EMAIL, HOTEL_ID, ROOM_ID, CHECK_IN, CHECK_OUT, 450.0, CONFIRMED,
-                null);
+                null, MANAGER_ID.toString());
         bookingResponse = buildResponse(BOOKING_ID, GUEST_ID, EMAIL, HOTEL_ID, ROOM_ID, CHECK_IN, CHECK_OUT, 450.0,
                 CONFIRMED, null);
     }
@@ -94,7 +98,7 @@ class BookingServiceImplTest {
 
         when(hotelServiceClient.getHotel(HOTEL_ID)).thenReturn(hotelSummary);
         when(hotelServiceClient.getRoom(HOTEL_ID, ROOM_ID)).thenReturn(roomSummary);
-        when(bookingRepository.existsOverlappingBooking(ROOM_ID, CHECK_IN, CHECK_OUT, CANCELLED)).thenReturn(false);
+        when(bookingRepository.findOverlappingForUpdate(ROOM_ID, CHECK_IN, CHECK_OUT, CANCELLED)).thenReturn(List.of());
         when(bookingRepository.save(any())).thenReturn(savedEntity);
         when(bookingMapper.toResponse(savedEntity)).thenReturn(bookingResponse);
 
@@ -111,7 +115,7 @@ class BookingServiceImplTest {
 
         when(hotelServiceClient.getHotel(HOTEL_ID)).thenReturn(hotelSummary);
         when(hotelServiceClient.getRoom(HOTEL_ID, ROOM_ID)).thenReturn(roomSummary);
-        when(bookingRepository.existsOverlappingBooking(any(), any(), any(), any())).thenReturn(false);
+        when(bookingRepository.findOverlappingForUpdate(any(), any(), any(), any())).thenReturn(List.of());
         when(bookingRepository.save(any())).thenReturn(savedEntity);
         when(bookingMapper.toResponse(savedEntity)).thenReturn(bookingResponse);
 
@@ -145,14 +149,36 @@ class BookingServiceImplTest {
 
         when(hotelServiceClient.getHotel(HOTEL_ID)).thenReturn(hotelSummary);
         when(hotelServiceClient.getRoom(HOTEL_ID, ROOM_ID)).thenReturn(roomSummary);
-        when(bookingRepository.existsOverlappingBooking(ROOM_ID, CHECK_IN, CHECK_OUT, CANCELLED)).thenReturn(true);
+        // Locking query returns an existing booking → conflict
+        when(bookingRepository.findOverlappingForUpdate(ROOM_ID, CHECK_IN, CHECK_OUT, CANCELLED)).thenReturn(
+                List.of(savedEntity));
 
         assertThatThrownBy(() -> bookingService.createBooking(request, GUEST_ID, EMAIL)).isInstanceOf(
                                                                                                 BookingConflictException.class)
                                                                                         .hasMessageContaining(
                                                                                                 "already booked");
 
-        verify(bookingRepository).existsOverlappingBooking(eq(ROOM_ID), any(), any(), eq(CANCELLED));
+        verify(bookingRepository).findOverlappingForUpdate(eq(ROOM_ID), any(), any(), eq(CANCELLED));
+        verifyNoInteractions(eventProducer);
+    }
+
+    @Test
+    void createBooking_dbConstraintFires_throwsConflict() {
+        // Simulates the safety-net path: locking query returns empty (extremely narrow
+        // race window), but the DB EXCLUDE constraint fires on INSERT.
+        var request = new CreateBookingRequest(HOTEL_ID, ROOM_ID, CHECK_IN, CHECK_OUT, null);
+
+        when(hotelServiceClient.getHotel(HOTEL_ID)).thenReturn(hotelSummary);
+        when(hotelServiceClient.getRoom(HOTEL_ID, ROOM_ID)).thenReturn(roomSummary);
+        when(bookingRepository.findOverlappingForUpdate(any(), any(), any(), any())).thenReturn(List.of());
+        when(bookingRepository.save(any())).thenThrow(
+                new DataIntegrityViolationException("excl_room_dates_no_overlap"));
+
+        assertThatThrownBy(() -> bookingService.createBooking(request, GUEST_ID, EMAIL)).isInstanceOf(
+                                                                                                BookingConflictException.class)
+                                                                                        .hasMessageContaining(
+                                                                                                "already booked");
+
         verifyNoInteractions(eventProducer);
     }
 
@@ -189,7 +215,7 @@ class BookingServiceImplTest {
     @Test
     void cancelBooking_asBookingOwner_returnsCancelledResponse() {
         var cancelledEntity = buildEntity(BOOKING_ID, GUEST_ID, EMAIL, HOTEL_ID, ROOM_ID, CHECK_IN, CHECK_OUT, 450.0,
-                CANCELLED, null);
+                CANCELLED, null, null);
         var cancelledResponse = buildResponse(BOOKING_ID, GUEST_ID, EMAIL, HOTEL_ID, ROOM_ID, CHECK_IN, CHECK_OUT,
                 450.0, CANCELLED, null);
 
@@ -206,9 +232,9 @@ class BookingServiceImplTest {
 
     @Test
     void cancelBooking_asHotelManager_succeeds() {
-        var managerId = UUID.randomUUID(); // different from GUEST_ID
+        // MANAGER_ID matches savedEntity.managerId set in setUp()
         var cancelledEntity = buildEntity(BOOKING_ID, GUEST_ID, EMAIL, HOTEL_ID, ROOM_ID, CHECK_IN, CHECK_OUT, 450.0,
-                CANCELLED, null);
+                CANCELLED, null, MANAGER_ID.toString());
 
         when(bookingRepository.findById(BOOKING_ID)).thenReturn(Optional.of(savedEntity));
         when(hotelServiceClient.getHotel(HOTEL_ID)).thenReturn(hotelSummary);
@@ -217,16 +243,31 @@ class BookingServiceImplTest {
                 buildResponse(BOOKING_ID, GUEST_ID, EMAIL, HOTEL_ID, ROOM_ID, CHECK_IN, CHECK_OUT, 450.0, CANCELLED,
                         null));
 
-        var result = bookingService.cancelBooking(BOOKING_ID, managerId, "HOTEL_MANAGER");
+        var result = bookingService.cancelBooking(BOOKING_ID, MANAGER_ID, "HOTEL_MANAGER");
 
         assertThat(result.status()).isEqualTo(CANCELLED);
+    }
+
+    @Test
+    void cancelBooking_asHotelManagerOfDifferentHotel_throwsForbidden() {
+        // Booking belongs to MANAGER_ID; a different manager tries to cancel
+        var differentManager = UUID.randomUUID();
+        when(bookingRepository.findById(BOOKING_ID)).thenReturn(Optional.of(savedEntity));
+
+        assertThatThrownBy(
+                () -> bookingService.cancelBooking(BOOKING_ID, differentManager, "HOTEL_MANAGER")).isInstanceOf(
+                                                                                                          ForbiddenException.class)
+                                                                                                  .hasMessageContaining(
+                                                                                                          "not authorized");
+
+        verifyNoInteractions(eventProducer);
     }
 
     @Test
     void cancelBooking_asAdmin_succeeds() {
         var adminId = UUID.randomUUID();
         var cancelledEntity = buildEntity(BOOKING_ID, GUEST_ID, EMAIL, HOTEL_ID, ROOM_ID, CHECK_IN, CHECK_OUT, 450.0,
-                CANCELLED, null);
+                CANCELLED, null, null);
 
         when(bookingRepository.findById(BOOKING_ID)).thenReturn(Optional.of(savedEntity));
         when(hotelServiceClient.getHotel(HOTEL_ID)).thenReturn(hotelSummary);
@@ -253,7 +294,7 @@ class BookingServiceImplTest {
     @Test
     void cancelBooking_alreadyCancelled_throwsConflict() {
         var alreadyCancelled = buildEntity(BOOKING_ID, GUEST_ID, EMAIL, HOTEL_ID, ROOM_ID, CHECK_IN, CHECK_OUT, 450.0,
-                CANCELLED, null);
+                CANCELLED, null, null);
         when(bookingRepository.findById(BOOKING_ID)).thenReturn(Optional.of(alreadyCancelled));
 
         assertThatThrownBy(() -> bookingService.cancelBooking(BOOKING_ID, GUEST_ID, "GUEST")).isInstanceOf(
@@ -295,11 +336,12 @@ class BookingServiceImplTest {
     // ── getHotelBookings ──────────────────────────────────────────────────────
 
     @Test
-    void getHotelBookings_noStatusFilter_returnsMappedList() {
+    void getHotelBookings_asOwningManager_noStatusFilter_returnsMappedList() {
+        when(hotelServiceClient.getHotel(HOTEL_ID)).thenReturn(hotelSummary); // managerId = MANAGER_ID
         when(bookingRepository.findByHotelId(HOTEL_ID)).thenReturn(List.of(savedEntity));
         when(bookingMapper.toListResponse(List.of(savedEntity))).thenReturn(List.of(bookingResponse));
 
-        var result = bookingService.getHotelBookings(HOTEL_ID, null);
+        var result = bookingService.getHotelBookings(HOTEL_ID, null, MANAGER_ID, "HOTEL_MANAGER");
 
         assertThat(result).hasSize(1)
                           .containsExactly(bookingResponse);
@@ -307,15 +349,30 @@ class BookingServiceImplTest {
     }
 
     @Test
-    void getHotelBookings_withStatusFilter_delegatesToFilteredQuery() {
+    void getHotelBookings_asOwningManager_withStatusFilter_delegatesToFilteredQuery() {
+        when(hotelServiceClient.getHotel(HOTEL_ID)).thenReturn(hotelSummary);
         when(bookingRepository.findByHotelIdAndStatus(HOTEL_ID, CONFIRMED)).thenReturn(List.of(savedEntity));
         when(bookingMapper.toListResponse(List.of(savedEntity))).thenReturn(List.of(bookingResponse));
 
-        var result = bookingService.getHotelBookings(HOTEL_ID, CONFIRMED);
+        var result = bookingService.getHotelBookings(HOTEL_ID, CONFIRMED, MANAGER_ID, "HOTEL_MANAGER");
 
         assertThat(result).hasSize(1)
                           .containsExactly(bookingResponse);
         verify(bookingRepository).findByHotelIdAndStatus(HOTEL_ID, CONFIRMED);
+    }
+
+    @Test
+    void getHotelBookings_asManagerOfDifferentHotel_throwsForbidden() {
+        var differentManager = UUID.randomUUID();
+        when(hotelServiceClient.getHotel(HOTEL_ID)).thenReturn(hotelSummary); // managerId = MANAGER_ID
+
+        assertThatThrownBy(
+                () -> bookingService.getHotelBookings(HOTEL_ID, null, differentManager, "HOTEL_MANAGER")).isInstanceOf(
+                                                                                                                 ForbiddenException.class)
+                                                                                                         .hasMessageContaining(
+                                                                                                                 "not authorized");
+
+        verifyNoInteractions(bookingRepository);
     }
 
     // ── checkRoomAvailability ─────────────────────────────────────────────────
@@ -338,20 +395,48 @@ class BookingServiceImplTest {
 
     @Test
     void guestIsStayed_hasPastCompletedBooking_returnsTrue() {
-        when(bookingRepository.findFirstByGuestIdAndHotelIdAndStatusNotAndCheckOutLessThanEqual(
-                eq(GUEST_ID), eq(HOTEL_ID), eq(CANCELLED), any(LocalDate.class)))
-                .thenReturn(Optional.of(savedEntity));
+        when(bookingRepository.findFirstByGuestIdAndHotelIdAndStatusNotAndCheckOutLessThanEqual(eq(GUEST_ID),
+                eq(HOTEL_ID), eq(CANCELLED), any(LocalDate.class))).thenReturn(Optional.of(savedEntity));
 
         assertThat(bookingService.guestIsStayed(GUEST_ID, HOTEL_ID)).isTrue();
     }
 
     @Test
     void guestIsStayed_noPastBooking_returnsFalse() {
-        when(bookingRepository.findFirstByGuestIdAndHotelIdAndStatusNotAndCheckOutLessThanEqual(
-                eq(GUEST_ID), eq(HOTEL_ID), eq(CANCELLED), any(LocalDate.class)))
-                .thenReturn(Optional.empty());
+        when(bookingRepository.findFirstByGuestIdAndHotelIdAndStatusNotAndCheckOutLessThanEqual(eq(GUEST_ID),
+                eq(HOTEL_ID), eq(CANCELLED), any(LocalDate.class))).thenReturn(Optional.empty());
 
         assertThat(bookingService.guestIsStayed(GUEST_ID, HOTEL_ID)).isFalse();
+    }
+
+    // ── cancelAllActiveBookingsForHotel ───────────────────────────────────────
+
+    @Test
+    void cancelAllActiveBookingsForHotel_cancelsAllAndPublishesEvents() {
+        var b1 = buildEntity(UUID.randomUUID(), GUEST_ID, EMAIL, HOTEL_ID, ROOM_ID, CHECK_IN, CHECK_OUT, 450.0,
+                CONFIRMED, null, MANAGER_ID.toString());
+        var b2 = buildEntity(UUID.randomUUID(), UUID.randomUUID(), "other@test.com", HOTEL_ID, "room-2",
+                CHECK_IN.plusDays(5), CHECK_OUT.plusDays(5), 300.0, CONFIRMED, null, MANAGER_ID.toString());
+
+        when(bookingRepository.findByHotelIdAndStatusNot(HOTEL_ID, CANCELLED)).thenReturn(List.of(b1, b2));
+        when(bookingRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        bookingService.cancelAllActiveBookingsForHotel(HOTEL_ID, "Grand Hotel");
+
+        assertThat(b1.getStatus()).isEqualTo(CANCELLED);
+        assertThat(b2.getStatus()).isEqualTo(CANCELLED);
+        verify(bookingRepository, times(2)).save(any());
+        verify(eventProducer, times(2)).publishBookingCancelled(any());
+    }
+
+    @Test
+    void cancelAllActiveBookingsForHotel_noActiveBookings_doesNothing() {
+        when(bookingRepository.findByHotelIdAndStatusNot(HOTEL_ID, CANCELLED)).thenReturn(List.of());
+
+        bookingService.cancelAllActiveBookingsForHotel(HOTEL_ID, "Grand Hotel");
+
+        verify(bookingRepository, never()).save(any());
+        verifyNoInteractions(eventProducer);
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
@@ -365,7 +450,8 @@ class BookingServiceImplTest {
                                      LocalDate checkOut,
                                      double price,
                                      BookingStatus status,
-                                     String specialRequests) {
+                                     String specialRequests,
+                                     String managerId) {
         var entity = new BookingEntity();
         entity.setId(id);
         entity.setGuestId(guestId);
@@ -377,6 +463,7 @@ class BookingServiceImplTest {
         entity.setTotalPrice(price);
         entity.setStatus(status);
         entity.setSpecialRequests(specialRequests);
+        entity.setManagerId(managerId);
         return entity;
     }
 

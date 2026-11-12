@@ -9,6 +9,13 @@ spring:
       username: ${MONGO_HOTEL_USER:smartstay_hotel}
       password: ${MONGO_HOTEL_PASSWORD:change_me_hotel}
       auto-index-creation: true
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:29092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      properties:
+        spring.json.type.mapping: "hotel-deleted:com.smartstay.hotel.event.HotelDeletedEvent"
 
 server:
   port: 8082
@@ -21,3 +28,6 @@ management:
   endpoint:
     health:
       show-details: always
+
+app:
+  internal-secret: ${INTERNAL_SECRET:change_me_internal_secret_dev}

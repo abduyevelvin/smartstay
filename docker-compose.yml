@@ -257,10 +257,14 @@ services:
     depends_on:
       mongodb:
         condition: service_healthy
+      kafka:
+        condition: service_healthy
     environment:
       SPRING_PROFILES_ACTIVE: docker
       MONGO_HOTEL_USER: ${MONGO_HOTEL_USER}
       MONGO_HOTEL_PASSWORD: ${MONGO_HOTEL_PASSWORD}
+      INTERNAL_SECRET: ${INTERNAL_SECRET}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
     ports:
       - "8082:8082"
     networks:
@@ -289,6 +293,8 @@ services:
       SPRING_PROFILES_ACTIVE: docker
       POSTGRES_BOOKING_USER: ${POSTGRES_BOOKING_USER}
       POSTGRES_BOOKING_PASSWORD: ${POSTGRES_BOOKING_PASSWORD}
+      INTERNAL_SECRET: ${INTERNAL_SECRET}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
     ports:
       - "8083:8083"
     networks:
@@ -317,6 +323,7 @@ services:
       SPRING_PROFILES_ACTIVE: docker
       MONGO_REVIEW_USER: ${MONGO_REVIEW_USER}
       MONGO_REVIEW_PASSWORD: ${MONGO_REVIEW_PASSWORD}
+      INTERNAL_SECRET: ${INTERNAL_SECRET}
     ports:
       - "8084:8084"
     networks:

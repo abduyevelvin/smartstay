@@ -52,7 +52,7 @@ import feign.FeignException;
 @SpringBootTest
 @AutoConfigureMockMvc
 @Testcontainers
-@EmbeddedKafka(partitions = 1, topics = {"booking.confirmed", "booking.cancelled"},
+@EmbeddedKafka(partitions = 1, topics = {"booking.confirmed", "booking.cancelled", "hotel.deleted"},
         bootstrapServersProperty = "spring.kafka.bootstrap-servers")
 @ActiveProfiles("test")
 class BookingControllerIT {
@@ -74,6 +74,7 @@ class BookingControllerIT {
     // ── Shared fixtures ───────────────────────────────────────────────────────
 
     static final UUID GUEST_ID = UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+    static final UUID MANAGER_ID = UUID.fromString("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
     static final String HOTEL_ID = "hotel-abc";
     static final String ROOM_ID = "room-xyz";
     static final String EMAIL = "guest@smartstay.test";
@@ -89,7 +90,7 @@ class BookingControllerIT {
     @BeforeEach
     void setUp() {
         bookingRepository.deleteAll();
-        hotelSummary = new HotelSummary(HOTEL_ID, "Grand Hotel", "Baku", "AZ");
+        hotelSummary = new HotelSummary(HOTEL_ID, "Grand Hotel", "Baku", "AZ", MANAGER_ID.toString());
         availableRoom = new RoomSummary(ROOM_ID, HOTEL_ID, 101, 150.0, 2, true);
     }
 
@@ -243,15 +244,30 @@ class BookingControllerIT {
 
     @Test
     void cancelBooking_asHotelManager_returns200() throws Exception {
-        var booking = saveBooking(ROOM_ID, HOTEL_ID, GUEST_ID, CHECK_IN, CHECK_OUT, BookingStatus.CONFIRMED);
+        // Booking's managerId must match the cancelling manager's userId
+        var booking = saveBooking(ROOM_ID, HOTEL_ID, GUEST_ID, CHECK_IN, CHECK_OUT, BookingStatus.CONFIRMED,
+                MANAGER_ID.toString());
         given(hotelServiceClient.getHotel(HOTEL_ID)).willReturn(hotelSummary);
-        var managerId = UUID.randomUUID();
 
-        mockMvc.perform(put("/api/v1/bookings/{id}/cancel", booking.getId()).header("X-User-Id", managerId.toString())
+        mockMvc.perform(put("/api/v1/bookings/{id}/cancel", booking.getId()).header("X-User-Id", MANAGER_ID.toString())
                                                                             .header("X-User-Email", "mgr@test.com")
                                                                             .header("X-User-Role", "HOTEL_MANAGER"))
                .andExpect(status().isOk())
                .andExpect(jsonPath("$.status").value("CANCELLED"));
+    }
+
+    @Test
+    void cancelBooking_asManagerOfDifferentHotel_returns403() throws Exception {
+        // Booking belongs to MANAGER_ID; a different manager tries to cancel
+        var booking = saveBooking(ROOM_ID, HOTEL_ID, GUEST_ID, CHECK_IN, CHECK_OUT, BookingStatus.CONFIRMED,
+                MANAGER_ID.toString());
+        var differentManager = UUID.randomUUID();
+
+        mockMvc.perform(
+                       put("/api/v1/bookings/{id}/cancel", booking.getId()).header("X-User-Id", differentManager.toString())
+                                                                           .header("X-User-Email", "other-mgr@test.com")
+                                                                           .header("X-User-Role", "HOTEL_MANAGER"))
+               .andExpect(status().isForbidden());
     }
 
     @Test
@@ -306,20 +322,35 @@ class BookingControllerIT {
 
     @Test
     void getHotelBookings_asHotelManager_returnsAllBookings() throws Exception {
-        saveBooking("room-1", HOTEL_ID, UUID.randomUUID(), CHECK_IN, CHECK_OUT, BookingStatus.CONFIRMED);
+        saveBooking("room-1", HOTEL_ID, UUID.randomUUID(), CHECK_IN, CHECK_OUT, BookingStatus.CONFIRMED, null);
         saveBooking("room-2", HOTEL_ID, UUID.randomUUID(), LocalDate.now()
                                                                     .plusDays(20), LocalDate.now()
                                                                                             .plusDays(23),
-                BookingStatus.CANCELLED);
+                BookingStatus.CANCELLED, null);
         // Different hotel — must not appear
-        saveBooking("room-9", "other-hotel", UUID.randomUUID(), CHECK_IN, CHECK_OUT, BookingStatus.CONFIRMED);
+        saveBooking("room-9", "other-hotel", UUID.randomUUID(), CHECK_IN, CHECK_OUT, BookingStatus.CONFIRMED, null);
 
-        mockMvc.perform(get("/api/v1/bookings/hotel/{hotelId}", HOTEL_ID).header("X-User-Id", UUID.randomUUID()
-                                                                                                  .toString())
+        // hotelSummary.managerId = MANAGER_ID → ownership check passes for MANAGER_ID
+        given(hotelServiceClient.getHotel(HOTEL_ID)).willReturn(hotelSummary);
+
+        mockMvc.perform(get("/api/v1/bookings/hotel/{hotelId}", HOTEL_ID).header("X-User-Id", MANAGER_ID.toString())
                                                                          .header("X-User-Email", "mgr@test.com")
                                                                          .header("X-User-Role", "HOTEL_MANAGER"))
                .andExpect(status().isOk())
                .andExpect(jsonPath("$.length()").value(2));
+    }
+
+    @Test
+    void getHotelBookings_asManagerOfDifferentHotel_returns403() throws Exception {
+        // Hotel's managerId is MANAGER_ID; a different manager tries to read
+        given(hotelServiceClient.getHotel(HOTEL_ID)).willReturn(hotelSummary);
+        var differentManager = UUID.randomUUID();
+
+        mockMvc.perform(
+                       get("/api/v1/bookings/hotel/{hotelId}", HOTEL_ID).header("X-User-Id", differentManager.toString())
+                                                                        .header("X-User-Email", "other-mgr@test.com")
+                                                                        .header("X-User-Role", "HOTEL_MANAGER"))
+               .andExpect(status().isForbidden());
     }
 
     @Test
@@ -332,23 +363,23 @@ class BookingControllerIT {
 
     @Test
     void getHotelBookings_withStatusFilter_returnsOnlyMatchingStatus() throws Exception {
-        saveBooking("room-1", HOTEL_ID, UUID.randomUUID(), CHECK_IN, CHECK_OUT, BookingStatus.CONFIRMED);
-        saveBooking("room-2", HOTEL_ID, UUID.randomUUID(), CHECK_IN, CHECK_OUT, BookingStatus.CONFIRMED);
-        saveBooking("room-3", HOTEL_ID, UUID.randomUUID(), CHECK_IN, CHECK_OUT, BookingStatus.CANCELLED);
+        saveBooking("room-1", HOTEL_ID, UUID.randomUUID(), CHECK_IN, CHECK_OUT, BookingStatus.CONFIRMED, null);
+        saveBooking("room-2", HOTEL_ID, UUID.randomUUID(), CHECK_IN, CHECK_OUT, BookingStatus.CONFIRMED, null);
+        saveBooking("room-3", HOTEL_ID, UUID.randomUUID(), CHECK_IN, CHECK_OUT, BookingStatus.CANCELLED, null);
 
-        mockMvc.perform(get("/api/v1/bookings/hotel/{hotelId}", HOTEL_ID)
-                                .param("status", "CONFIRMED")
-                                .header("X-User-Id", UUID.randomUUID().toString())
-                                .header("X-User-Email", "mgr@test.com")
-                                .header("X-User-Role", "HOTEL_MANAGER"))
+        given(hotelServiceClient.getHotel(HOTEL_ID)).willReturn(hotelSummary);
+
+        mockMvc.perform(get("/api/v1/bookings/hotel/{hotelId}", HOTEL_ID).param("status", "CONFIRMED")
+                                                                         .header("X-User-Id", MANAGER_ID.toString())
+                                                                         .header("X-User-Email", "mgr@test.com")
+                                                                         .header("X-User-Role", "HOTEL_MANAGER"))
                .andExpect(status().isOk())
                .andExpect(jsonPath("$.length()").value(2));
 
-        mockMvc.perform(get("/api/v1/bookings/hotel/{hotelId}", HOTEL_ID)
-                                .param("status", "CANCELLED")
-                                .header("X-User-Id", UUID.randomUUID().toString())
-                                .header("X-User-Email", "mgr@test.com")
-                                .header("X-User-Role", "HOTEL_MANAGER"))
+        mockMvc.perform(get("/api/v1/bookings/hotel/{hotelId}", HOTEL_ID).param("status", "CANCELLED")
+                                                                         .header("X-User-Id", MANAGER_ID.toString())
+                                                                         .header("X-User-Email", "mgr@test.com")
+                                                                         .header("X-User-Role", "HOTEL_MANAGER"))
                .andExpect(status().isOk())
                .andExpect(jsonPath("$.length()").value(1));
     }
@@ -392,54 +423,81 @@ class BookingControllerIT {
     @Test
     void verifyStay_hasPastConfirmedBooking_returnsTrue() throws Exception {
         // checkOut is 5 days ago — counts as a completed stay
-        saveBooking(ROOM_ID, HOTEL_ID, GUEST_ID,
-                LocalDate.now().minusDays(10), LocalDate.now().minusDays(5),
+        saveBooking(ROOM_ID, HOTEL_ID, GUEST_ID, LocalDate.now()
+                                                          .minusDays(10), LocalDate.now()
+                                                                                   .minusDays(5),
                 BookingStatus.CONFIRMED);
 
-        mockMvc.perform(get("/api/v1/bookings/verify-stay")
-                                .param("guestId", GUEST_ID.toString())
-                                .param("hotelId", HOTEL_ID))
+        mockMvc.perform(get("/api/v1/bookings/verify-stay").header("X-Internal-Secret", TEST_INTERNAL_SECRET)
+                                                           .param("guestId", GUEST_ID.toString())
+                                                           .param("hotelId", HOTEL_ID))
                .andExpect(status().isOk())
                .andExpect(jsonPath("$.isStayed").value(true));
     }
 
     @Test
     void verifyStay_noPastBooking_returnsFalse() throws Exception {
-        // No booking at all for this guest+hotel
-        mockMvc.perform(get("/api/v1/bookings/verify-stay")
-                                .param("guestId", GUEST_ID.toString())
-                                .param("hotelId", HOTEL_ID))
+        mockMvc.perform(get("/api/v1/bookings/verify-stay").header("X-Internal-Secret", TEST_INTERNAL_SECRET)
+                                                           .param("guestId", GUEST_ID.toString())
+                                                           .param("hotelId", HOTEL_ID))
                .andExpect(status().isOk())
                .andExpect(jsonPath("$.isStayed").value(false));
     }
 
     @Test
     void verifyStay_cancelledBookingIgnored_returnsFalse() throws Exception {
-        // Booking was cancelled — should not count as a stay
-        saveBooking(ROOM_ID, HOTEL_ID, GUEST_ID,
-                LocalDate.now().minusDays(10), LocalDate.now().minusDays(5),
+        saveBooking(ROOM_ID, HOTEL_ID, GUEST_ID, LocalDate.now()
+                                                          .minusDays(10), LocalDate.now()
+                                                                                   .minusDays(5),
                 BookingStatus.CANCELLED);
 
-        mockMvc.perform(get("/api/v1/bookings/verify-stay")
-                                .param("guestId", GUEST_ID.toString())
-                                .param("hotelId", HOTEL_ID))
+        mockMvc.perform(get("/api/v1/bookings/verify-stay").header("X-Internal-Secret", TEST_INTERNAL_SECRET)
+                                                           .param("guestId", GUEST_ID.toString())
+                                                           .param("hotelId", HOTEL_ID))
                .andExpect(status().isOk())
                .andExpect(jsonPath("$.isStayed").value(false));
     }
 
     @Test
     void verifyStay_futureBookingIgnored_returnsFalse() throws Exception {
-        // Check-out is in the future — guest hasn't stayed yet
         saveBooking(ROOM_ID, HOTEL_ID, GUEST_ID, CHECK_IN, CHECK_OUT, BookingStatus.CONFIRMED);
 
-        mockMvc.perform(get("/api/v1/bookings/verify-stay")
-                                .param("guestId", GUEST_ID.toString())
-                                .param("hotelId", HOTEL_ID))
+        mockMvc.perform(get("/api/v1/bookings/verify-stay").header("X-Internal-Secret", TEST_INTERNAL_SECRET)
+                                                           .param("guestId", GUEST_ID.toString())
+                                                           .param("hotelId", HOTEL_ID))
                .andExpect(status().isOk())
                .andExpect(jsonPath("$.isStayed").value(false));
     }
 
+    @Test
+    void verifyStay_missingSecret_returns403() throws Exception {
+        mockMvc.perform(get("/api/v1/bookings/verify-stay")
+                       // No X-Internal-Secret header
+                       .param("guestId", GUEST_ID.toString())
+                       .param("hotelId", HOTEL_ID))
+               .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void verifyStay_wrongSecret_returns403() throws Exception {
+        // A past confirmed booking exists, but the secret is wrong — must not leak data
+        saveBooking(ROOM_ID, HOTEL_ID, GUEST_ID, LocalDate.now()
+                                                          .minusDays(10), LocalDate.now()
+                                                                                   .minusDays(5),
+                BookingStatus.CONFIRMED);
+
+        mockMvc.perform(get("/api/v1/bookings/verify-stay").header("X-Internal-Secret", "totally-wrong-secret")
+                                                           .param("guestId", GUEST_ID.toString())
+                                                           .param("hotelId", HOTEL_ID))
+               .andExpect(status().isForbidden());
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    /**
+     * Must match app.internal-secret in application-test.yml
+     */
+    static final String TEST_INTERNAL_SECRET = "test-internal-secret";
 
     private BookingEntity saveBooking(String roomId,
                                       String hotelId,
@@ -447,6 +505,16 @@ class BookingControllerIT {
                                       LocalDate checkIn,
                                       LocalDate checkOut,
                                       BookingStatus status) {
+        return saveBooking(roomId, hotelId, guestId, checkIn, checkOut, status, null);
+    }
+
+    private BookingEntity saveBooking(String roomId,
+                                      String hotelId,
+                                      UUID guestId,
+                                      LocalDate checkIn,
+                                      LocalDate checkOut,
+                                      BookingStatus status,
+                                      String managerId) {
         var entity = new BookingEntity();
         entity.setGuestId(guestId);
         entity.setGuestEmail("guest@test.com");
@@ -456,6 +524,7 @@ class BookingControllerIT {
         entity.setCheckOut(checkOut);
         entity.setTotalPrice(300.0);
         entity.setStatus(status);
+        entity.setManagerId(managerId);
         return bookingRepository.save(entity);
     }
 }

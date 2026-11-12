@@ -29,20 +29,30 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
     public Mono<Void> filter(final ServerWebExchange exchange,
                              final GatewayFilterChain chain) {
 
-        final var requestPath = exchange.getRequest()
-                                        .getPath()
-                                        .value();
+        // Always strip X-Internal-Secret before forwarding to any downstream service.
+        // This prevents an external caller from spoofing the header and bypassing
+        // the internal-secret check on hotel-service's /rating endpoint.
+        final var strippedExchange = exchange.mutate()
+                                             .request(exchange.getRequest()
+                                                              .mutate()
+                                                              .headers(h -> h.remove("X-Internal-Secret"))
+                                                              .build())
+                                             .build();
+
+        final var requestPath = strippedExchange.getRequest()
+                                                .getPath()
+                                                .value();
 
         for (String publicPath : securityProperties.getPublicPaths()) {
             if (antPathMatcher.match(publicPath, requestPath)) {
                 log.debug("Public path matched [{}] — skipping JWT validation", requestPath);
-                return chain.filter(exchange);
+                return chain.filter(strippedExchange);
             }
         }
 
-        final var authHeader = exchange.getRequest()
-                                       .getHeaders()
-                                       .getFirst("Authorization");
+        final var authHeader = strippedExchange.getRequest()
+                                               .getHeaders()
+                                               .getFirst("Authorization");
         if (authHeader != null && authHeader.startsWith("Bearer ")) {
             final var token = authHeader.substring(7);
             try {
@@ -53,23 +63,23 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
                 final var name = claims.get("name", String.class);
 
                 log.debug("JWT validated for user [{}] with role [{}] on path [{}]", userId, role, requestPath);
-                final var mutatedRequest = exchange.getRequest()
-                                                   .mutate()
-                                                   .header("X-User-Email", email)
-                                                   .header("X-User-Id", userId)
-                                                   .header("X-User-Role", role)
-                                                   .header("X-User-Name", name != null ? name : email)
-                                                   .build();
-                return chain.filter(exchange.mutate()
-                                            .request(mutatedRequest)
-                                            .build());
+                final var mutatedRequest = strippedExchange.getRequest()
+                                                           .mutate()
+                                                           .header("X-User-Email", email)
+                                                           .header("X-User-Id", userId)
+                                                           .header("X-User-Role", role)
+                                                           .header("X-User-Name", name != null ? name : email)
+                                                           .build();
+                return chain.filter(strippedExchange.mutate()
+                                                    .request(mutatedRequest)
+                                                    .build());
             } catch (Exception e) {
                 log.warn("Invalid JWT token: {}", e.getMessage());
-                return unauthorized(exchange);
+                return unauthorized(strippedExchange);
             }
         }
 
-        return unauthorized(exchange);
+        return unauthorized(strippedExchange);
     }
 
     private Mono<Void> unauthorized(final ServerWebExchange exchange) {

@@ -2,6 +2,7 @@ package com.smartstay.hotel.controller;
 
 import java.util.List;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
@@ -30,13 +31,18 @@ import com.smartstay.hotel.service.HotelService;
 
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
+@Slf4j
 @RestController
 @RequestMapping("/api/v1/hotels")
 @RequiredArgsConstructor
 public class HotelController {
 
     private final HotelService hotelService;
+
+    @Value("${app.internal-secret}")
+    private String internalSecret;
 
     // ── Hotel endpoints ───────────────────────────────────────────────────────
 
@@ -85,7 +91,14 @@ public class HotelController {
 
     @PatchMapping("/{id}/rating")
     public ResponseEntity<Void> updateRating(@PathVariable String id,
-                                             @RequestBody UpdateRatingRequest request) {
+                                             @RequestBody UpdateRatingRequest request,
+                                             @RequestHeader(value = "X-Internal-Secret",
+                                                     required = false) String secret) {
+        if (!internalSecret.equals(secret)) {
+            log.warn("Rejected rating update for hotel [{}] — missing or invalid X-Internal-Secret", id);
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                                 .build();
+        }
         hotelService.updateRating(id, request.averageRating(), request.reviewCount());
         return ResponseEntity.noContent()
                              .build();

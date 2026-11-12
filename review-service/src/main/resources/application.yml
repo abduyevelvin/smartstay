@@ -32,3 +32,6 @@ management:
     web:
       exposure:
         include: health,info
+
+app:
+  internal-secret: ${INTERNAL_SECRET:change_me_internal_secret_dev}

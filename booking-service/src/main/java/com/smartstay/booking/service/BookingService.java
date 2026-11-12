@@ -25,7 +25,9 @@ public interface BookingService {
                                         Pageable pageable);
 
     List<BookingResponse> getHotelBookings(String hotelId,
-                                           BookingStatus status);
+                                           BookingStatus status,
+                                           UUID principalId,
+                                           String userRole);
 
     boolean checkRoomAvailability(String roomId,
                                   LocalDate checkIn,
@@ -33,4 +35,15 @@ public interface BookingService {
 
     boolean guestIsStayed(UUID guestId,
                           String hotelId);
+
+    /**
+     * Cancels every non-cancelled booking for the given hotel and publishes a
+     * {@code booking.cancelled} event for each, triggering guest notification emails.
+     * Called when a {@code hotel.deleted} Kafka event is received.
+     *
+     * @param hotelId   the deleted hotel's ID
+     * @param hotelName the deleted hotel's name (used in notification emails)
+     */
+    void cancelAllActiveBookingsForHotel(String hotelId,
+                                         String hotelName);
 }

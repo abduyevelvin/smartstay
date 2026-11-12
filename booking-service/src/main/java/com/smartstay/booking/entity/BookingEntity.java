@@ -52,4 +52,11 @@ public class BookingEntity extends BaseEntity {
 
     @Column(name = "special_requests")
     private String specialRequests;
+
+    /**
+     * The hotel-service managerId at the time of booking.
+     * Stored to avoid a Feign call on every cancel/read; nullable for backwards-compat.
+     */
+    @Column(name = "manager_id")
+    private String managerId;
 }

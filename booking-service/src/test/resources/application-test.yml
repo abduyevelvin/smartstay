@@ -8,3 +8,6 @@ POSTGRES_BOOKING_PASSWORD: test
 feign:
   hotel-service:
     url: http://localhost:9999   # never reached in tests — HotelServiceClient is @MockBean or Mockito mock
+
+app:
+  internal-secret: test-internal-secret

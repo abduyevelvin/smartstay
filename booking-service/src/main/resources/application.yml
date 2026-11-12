@@ -16,10 +16,19 @@ spring:
     enabled: true
     locations: classpath:db/migration
   kafka:
-    bootstrap-servers: localhost:29092
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:29092}
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+    consumer:
+      group-id: booking-service
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "com.smartstay.*"
+        # Map the producer's class name (hotel-service) to this service's local record
+        spring.json.type.mapping: "com.smartstay.hotel.event.HotelDeletedEvent:com.smartstay.booking.event.HotelDeletedEvent,hotel-deleted:com.smartstay.booking.event.HotelDeletedEvent"
 
 server:
   port: 8083
@@ -27,3 +36,6 @@ server:
 feign:
   hotel-service:
     url: http://localhost:8082
+
+app:
+  internal-secret: ${INTERNAL_SECRET:change_me_internal_secret_dev}

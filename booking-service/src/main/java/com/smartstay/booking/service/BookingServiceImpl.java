@@ -8,9 +8,11 @@ import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.UUID;
 
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.smartstay.booking.client.HotelServiceClient;
 import com.smartstay.booking.client.dto.HotelSummary;
@@ -42,6 +44,7 @@ public class BookingServiceImpl implements BookingService {
     private final BookingEventProducer eventProducer;
     private final BookingMapper bookingMapper;
 
+    @Transactional
     @Override
     public BookingResponse createBooking(final CreateBookingRequest request,
                                          final UUID guestId,
@@ -58,8 +61,12 @@ public class BookingServiceImpl implements BookingService {
             throw new BookingConflictException("Room is not available for booking");
         }
 
-        if (bookingRepository.existsOverlappingBooking(request.roomId(), request.checkIn(), request.checkOut(),
-                CANCELLED)) {
+        // Locking overlap check: acquires SELECT … FOR UPDATE on any conflicting rows.
+        // A second concurrent transaction will block here until this one commits,
+        // preventing two requests from both passing the "no overlap" gate simultaneously.
+        final var overlapping = bookingRepository.findOverlappingForUpdate(request.roomId(), request.checkIn(),
+                request.checkOut(), CANCELLED);
+        if (!overlapping.isEmpty()) {
             log.warn("Overlapping booking detected — roomId={}, checkIn={}, checkOut={}", request.roomId(),
                     request.checkIn(), request.checkOut());
             throw new BookingConflictException(
@@ -80,16 +87,27 @@ public class BookingServiceImpl implements BookingService {
         booking.setTotalPrice(totalPrice);
         booking.setStatus(CONFIRMED);
         booking.setSpecialRequests(request.specialRequests());
+        booking.setManagerId(hotel.managerId());   // snapshot for cancel/ownership checks
 
-        final var saved = bookingRepository.save(booking);
-        log.info("Booking created — id={}, guestId={}, hotelId={}, roomId={}", saved.getId(), guestId,
-                request.hotelId(), request.roomId());
+        try {
+            final var saved = bookingRepository.save(booking);
+            log.info("Booking created — id={}, guestId={}, hotelId={}, roomId={}", saved.getId(), guestId,
+                    request.hotelId(), request.roomId());
 
-        final var event = new BookingConfirmedEvent(saved.getId(), guestEmail, hotel.name(), request.checkIn(),
-                request.checkOut());
-        eventProducer.publishBookingConfirmed(event);
+            final var event = new BookingConfirmedEvent(saved.getId(), guestEmail, hotel.name(), request.checkIn(),
+                    request.checkOut());
+            eventProducer.publishBookingConfirmed(event);
 
-        return bookingMapper.toResponse(saved);
+            return bookingMapper.toResponse(saved);
+        } catch (DataIntegrityViolationException ex) {
+            // Safety net: the DB EXCLUDE constraint fired (e.g. a concurrent transaction
+            // slipped through before the lock was acquired).  Surface a clean 409.
+            log.warn("DB exclude constraint fired — roomId={}, checkIn={}, checkOut={} (concurrent race)",
+                    request.roomId(), request.checkIn(), request.checkOut());
+            throw new BookingConflictException(
+                    "Room is already booked for the requested dates: " + request.checkIn() + " – "
+                            + request.checkOut());
+        }
     }
 
     private RoomSummary getRoomOrThrow(String hotelId,
@@ -115,9 +133,16 @@ public class BookingServiceImpl implements BookingService {
             throw new BookingConflictException("Booking already cancelled");
         }
 
-        if (!booking.getGuestId()
-                    .equals(userId) && !("HOTEL_MANAGER".equals(userRole) || "ADMIN".equals(userRole))) {
-            log.warn("{} is not authorized to cancel this booking: id={}", userRole, bookingId);
+        final boolean isGuestOwner = booking.getGuestId()
+                                            .equals(userId);
+        final boolean isAdmin = "ADMIN".equals(userRole);
+        // Manager can only cancel bookings at hotels they manage (managerId stored at creation)
+        final boolean isHotelOwner =
+                "HOTEL_MANAGER".equals(userRole) && booking.getManagerId() != null && booking.getManagerId()
+                                                                                             .equals(userId.toString());
+
+        if (!isGuestOwner && !isAdmin && !isHotelOwner) {
+            log.warn("Unauthorized cancel attempt — userId={}, role={}, bookingId={}", userId, userRole, bookingId);
             throw new ForbiddenException("You are not authorized to cancel this booking");
         }
 
@@ -152,11 +177,22 @@ public class BookingServiceImpl implements BookingService {
 
     @Override
     public List<BookingResponse> getHotelBookings(final String hotelId,
-                                                  BookingStatus status) {
-        log.debug("Fetching bookings for hotelId={}", hotelId);
-        final var bookings = (status != null) ? bookingRepository.findByHotelIdAndStatus(hotelId, status)   // filtered
-                : bookingRepository.findByHotelId(hotelId);
+                                                  final BookingStatus status,
+                                                  final UUID principalId,
+                                                  final String userRole) {
+        log.debug("Fetching bookings for hotelId={}, role={}", hotelId, userRole);
 
+        if ("HOTEL_MANAGER".equals(userRole)) {
+            final var hotel = getHotelOrThrow(hotelId);
+            if (!principalId.toString()
+                            .equals(hotel.managerId())) {
+                log.warn("Unauthorized hotel-bookings read — principalId={}, hotelId={}", principalId, hotelId);
+                throw new ForbiddenException("You are not authorized to view bookings for this hotel");
+            }
+        }
+
+        final var bookings = (status != null) ? bookingRepository.findByHotelIdAndStatus(hotelId, status) :
+                bookingRepository.findByHotelId(hotelId);
         return bookingMapper.toListResponse(bookings);
     }
 
@@ -176,5 +212,26 @@ public class BookingServiceImpl implements BookingService {
         return bookingRepository.findFirstByGuestIdAndHotelIdAndStatusNotAndCheckOutLessThanEqual(guestId, hotelId,
                                         CANCELLED, LocalDate.now())
                                 .isPresent();
+    }
+
+    @Transactional
+    @Override
+    public void cancelAllActiveBookingsForHotel(final String hotelId,
+                                                final String hotelName) {
+        final var activeBookings = bookingRepository.findByHotelIdAndStatusNot(hotelId, CANCELLED);
+        if (activeBookings.isEmpty()) {
+            log.info("No active bookings to cancel for deleted hotel hotelId={}", hotelId);
+            return;
+        }
+
+        for (final var booking : activeBookings) {
+            booking.setStatus(CANCELLED);
+            bookingRepository.save(booking);
+            eventProducer.publishBookingCancelled(
+                    new BookingCancelledEvent(booking.getId(), booking.getGuestEmail(), hotelName, booking.getCheckIn(),
+                            booking.getCheckOut()));
+        }
+
+        log.info("Cancelled {} active booking(s) for deleted hotel hotelId={}", activeBookings.size(), hotelId);
     }
 }

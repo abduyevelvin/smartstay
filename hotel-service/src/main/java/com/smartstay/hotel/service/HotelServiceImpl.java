@@ -11,6 +11,8 @@ import com.smartstay.hotel.dto.CreateRoomRequest;
 import com.smartstay.hotel.dto.HotelResponse;
 import com.smartstay.hotel.dto.RoomResponse;
 import com.smartstay.hotel.dto.UpdateHotelRequest;
+import com.smartstay.hotel.event.HotelDeletedEvent;
+import com.smartstay.hotel.event.HotelEventProducer;
 import com.smartstay.hotel.exceptions.ForbiddenException;
 import com.smartstay.hotel.exceptions.ResourceExistsException;
 import com.smartstay.hotel.exceptions.ResourceNotFoundException;
@@ -31,6 +33,7 @@ public class HotelServiceImpl implements HotelService {
     private final RoomRepository roomRepository;
     private final HotelMapper hotelMapper;
     private final RoomMapper roomMapper;
+    private final HotelEventProducer hotelEventProducer;
 
     @Override
     public HotelResponse createHotel(final CreateHotelRequest request,
@@ -102,9 +105,14 @@ public class HotelServiceImpl implements HotelService {
             throw new ForbiddenException("You are not authorized to delete this hotel");
         }
 
+        final var hotelName = hotelDocument.getName();
         roomRepository.deleteAllByHotelId(id);
         hotelRepository.deleteById(id);
         log.info("Hotel deleted — id={}, managerId={}", id, managerId);
+
+        // Publish event so booking-service cancels all active bookings for this hotel
+        // and sends notification emails to affected guests.
+        hotelEventProducer.publishHotelDeleted(new HotelDeletedEvent(id, hotelName, managerId));
     }
 
     @Override
