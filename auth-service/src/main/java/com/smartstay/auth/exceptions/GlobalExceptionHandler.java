@@ -35,6 +35,14 @@ public class GlobalExceptionHandler {
         return build(HttpStatus.NOT_FOUND, ex.getMessage(), request);
     }
 
+    // 403 — forbidden (e.g. self-registration with non-GUEST role)
+    @ExceptionHandler(ForbiddenException.class)
+    public ResponseEntity<ErrorResponse> handleForbidden(ForbiddenException ex,
+                                                         HttpServletRequest request) {
+        log.warn("Forbidden: {}", ex.getMessage());
+        return build(HttpStatus.FORBIDDEN, ex.getMessage(), request);
+    }
+
     // 401 — bad credentials (login failure, revoked/expired token)
     @ExceptionHandler(BadCredentialsException.class)
     public ResponseEntity<ErrorResponse> handleBadCredentials(BadCredentialsException ex,

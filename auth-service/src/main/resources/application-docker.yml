@@ -10,3 +10,6 @@ app:
   security:
     private-key-path: file:/certs/private.pem   # mounted via volumes: ./certs:/certs:ro
     public-key-path: file:/certs/public.pem
+  admin:
+    email: ${APP_ADMIN_EMAIL:admin@smartstay.com}
+    password: ${APP_ADMIN_PASSWORD:Admin@1234}   # override in production via env var

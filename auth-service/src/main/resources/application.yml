@@ -25,3 +25,6 @@ app:
     public-key-path: classpath:certs/public.pem
     access-token-expiry: 900        # 15 min in seconds
     refresh-token-expiry: 604800    # 7 days in seconds
+  admin:
+    email: ${APP_ADMIN_EMAIL:admin@smartstay.com}
+    password: ${APP_ADMIN_PASSWORD:Admin@1234}   # override in production via env var

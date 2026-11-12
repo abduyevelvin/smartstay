@@ -13,7 +13,9 @@ import com.smartstay.auth.dto.RefreshRequest;
 import com.smartstay.auth.dto.RegisterRequest;
 import com.smartstay.auth.entity.RefreshToken;
 import com.smartstay.auth.entity.UserEntity;
+import com.smartstay.auth.enums.Role;
 import com.smartstay.auth.exceptions.BadCredentialsException;
+import com.smartstay.auth.exceptions.ForbiddenException;
 import com.smartstay.auth.exceptions.ResourceExistsException;
 import com.smartstay.auth.exceptions.ResourceNotFoundException;
 import com.smartstay.auth.repository.RefreshTokenRepository;
@@ -36,6 +38,11 @@ public class AuthService {
 
     public AuthResponse register(RegisterRequest registerRequest) {
         log.info("Registering new user with email: {}", registerRequest.email());
+
+        if (registerRequest.role() != Role.GUEST) {
+            log.warn("Registration rejected — non-GUEST self-registration attempt: role={}", registerRequest.role());
+            throw new ForbiddenException("Self-registration is only allowed for the GUEST role");
+        }
 
         if (userRepository.existsByEmail(registerRequest.email())) {
             log.warn("Registration failed — email already exists: {}", registerRequest.email());

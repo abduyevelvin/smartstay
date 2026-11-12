@@ -22,6 +22,21 @@ spring:
                 name: auth-service-circuit
                 fallbackUri: forward:/fallback
 
+        - id: admin-service
+          uri: http://auth-service:8081
+          predicates:
+            - Path=/api/v1/admin/**
+          filters:
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 5
+                redis-rate-limiter.burstCapacity: 20
+                key-resolver: "#{@userKeyResolver}"
+            - name: CircuitBreaker
+              args:
+                name: auth-service-circuit
+                fallbackUri: forward:/fallback
+
         - id: hotel-service
           uri: http://hotel-service:8082
           predicates:

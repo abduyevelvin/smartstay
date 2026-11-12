@@ -785,21 +785,167 @@ Run `make build && make up` to bring the full stack up.
 
 ---
 
-## Phase 9 — Frontend (React / Next.js)
+## Phase 9 — Frontend (React / Next.js) ✅ DONE
 
 **Goal**: Web UI consuming all APIs via the Gateway.
 
-### Pages & Components
+> **Completed**: 2026-11-12
 
-- [ ] 9.1 Setup Next.js 15 app with TypeScript + Tailwind CSS
-- [ ] 9.2 **Auth pages**: Register, Login (stores JWT in httpOnly cookie or memory)
-- [ ] 9.3 **Home / Search**: Search bar (city, dates, guests) → hotel listing grid
-- [ ] 9.4 **Hotel Detail**: Photos, amenities, room list, reviews, AI summary
-- [ ] 9.5 **Booking Flow**: Select room → confirm dates → booking summary → confirm
-- [ ] 9.6 **Guest Dashboard**: My bookings, cancel, leave review
-- [ ] 9.7 **Hotel Manager Dashboard**: My hotels, add hotel/room, view bookings
-- [ ] 9.8 **AI Chat Widget**: Floating chat button → opens sidebar → talks to `/api/v1/ai/chat`
-- [ ] 9.9 Add to `docker-compose.yml` as `frontend` service
+### Stack
+- **Next.js 15** (App Router) · **TypeScript** · **Tailwind CSS v4** · **shadcn/ui**
+- **TanStack Query v5** — server state, caching, pagination
+- **Zustand v5** — client auth state (access token in memory)
+- **Axios** — API client with 401 auto-refresh interceptor
+- **React Hook Form + Zod** — all forms validated
+
+### Groups Completed
+
+- [x] **Group 1 — Scaffold & Config**
+  - `create-next-app` inside `frontend/`
+  - All dependencies installed (shadcn/ui, TanStack Query, Zustand, Axios, React Hook Form, Zod)
+  - Folder structure: `app/`, `components/`, `lib/`, `types/`
+  - `.env.local` (dev) + `.env.docker` (container) pointing to gateway
+
+- [x] **Group 2 — API Layer + Types**
+  - Axios instance with `baseURL` + `Authorization` header interceptor
+  - Auto-refresh on 401 (calls `/api/v1/auth/refresh`, retries original request with queue)
+  - TypeScript types mirroring all backend DTOs (Hotel, Room, Booking, Review, Auth, AI, Admin)
+
+- [x] **Group 3 — Auth**
+  - Zustand auth store (access token in memory, refresh token in store)
+  - Login page + Register page (role hardcoded to GUEST — managers promoted by admin)
+  - `middleware.ts` — redirects unauthenticated users away from protected routes
+
+- [x] **Group 4 — Home + Hotel Search**
+  - Search bar (city, check-in, check-out, guests)
+  - Hotel listing grid with `HotelCard`
+  - TanStack Query hook for `GET /api/v1/hotels`
+
+- [x] **Group 5 — Hotel Detail Page**
+  - Photos, amenities, star rating
+  - Room list with availability
+  - Reviews section (paginated)
+  - AI summary (calls `POST /api/v1/ai/hotels/{id}/summary`)
+
+- [x] **Group 6 — Booking Flow**
+  - Room selection → date confirm → booking summary → confirm button
+  - Calls `POST /api/v1/bookings`
+  - Success / error feedback
+
+- [x] **Group 7 — Guest Dashboard**
+  - My bookings list (paginated)
+  - Cancel booking action (2-step confirm)
+  - Leave a review form
+
+- [x] **Group 8 — Hotel Manager Dashboard**
+  - My hotels list (filtered by `managerId` client-side)
+  - Add hotel / add room forms (modals with full validation)
+  - View bookings per hotel (modal)
+  - Delete hotel with 2-step inline confirm
+  - `useManagerHotels(managerId)` hook
+
+- [x] **Group 9 — AI Chat Widget**
+  - Floating button bottom-right (`Bot` icon → `X` when open)
+  - Slide-in sidebar (380px desktop, full-width mobile)
+  - Session ID in `sessionStorage` (persists across page refreshes, resets per tab)
+  - Loads chat history on open via `GET /api/v1/ai/chat/{sessionId}/history`
+  - Typing indicator (3 bouncing dots) while awaiting reply
+  - Enter to send · Shift+Enter for new line
+  - Only shown to authenticated users
+
+- [x] **Group 10 — Dockerize**
+  - `frontend/Dockerfile` — 3-stage multi-stage build (`deps → builder → runner`)
+  - `output: "standalone"` in `next.config.ts` — minimal self-contained server (~180 MB vs ~1 GB)
+  - `build:docker` npm script (standard Webpack, no `--turbopack` for stable prod builds)
+  - `frontend/.dockerignore`
+  - `frontend` service added to `docker-compose.yml` (depends on `api-gateway: service_healthy`)
+  - `NEXT_PUBLIC_API_URL=http://localhost:8080` baked at build time (browser → published gateway port)
+
+### Bonus — Admin Panel (Role Management)
+
+- [x] **Backend — auth-service additions**
+  - `HeaderAuthenticationFilter` — trusts `X-User-Id` / `X-User-Role` headers from gateway
+  - `SecurityConfig` updated — `@EnableMethodSecurity`, protects `/api/v1/admin/**` with `hasRole('ADMIN')`
+  - `AdminUserSeeder` (`ApplicationRunner`) — seeds one ADMIN user on first startup
+    - Default: `admin@smartstay.com` / `Admin@1234`
+    - Override: `APP_ADMIN_EMAIL` / `APP_ADMIN_PASSWORD` env vars
+  - `AdminController` at `/api/v1/admin/users`:
+    - `GET /` — list all users (paginated)
+    - `PATCH /{id}/role` — assign `GUEST` or `HOTEL_MANAGER` (ADMIN role protected, cannot be assigned or changed)
+  - `AdminService`, `UserSummaryResponse`, `AssignRoleRequest` DTOs
+  - `app.admin.email` / `app.admin.password` added to `application.yml` + `application-docker.yml`
+  - `APP_ADMIN_EMAIL` / `APP_ADMIN_PASSWORD` added to `.env.example`
+
+- [x] **Gateway — admin route**
+  - `/api/v1/admin/**` route added to `application.yml` + `application-docker.yml`
+  - Routed to auth-service, JWT validated (protected, not in public-paths)
+
+- [x] **Frontend — admin page**
+  - `/admin/users` page — table of all users with role badges
+  - Inline 2-step "Make Manager" / "Remove Manager" actions
+  - ADMIN row shows "Protected" (cannot be changed)
+  - Navbar shows "Admin" link for `ADMIN` role users
+  - `middleware.ts` protects `/admin/**`
+  - `useAdmin` hook (`useAllUsers`, `useAssignRole`)
+
+- [x] **Tests**
+  - `AdminServiceTest` — 8 unit tests (Mockito): getAllUsers, assignRole happy paths + all guards
+  - `AdminControllerIT` — 9 integration tests (Testcontainers): HTTP 200/403/404 for all scenarios
+
+### Key Files
+```
+frontend/
+  src/app/
+    (auth)/login/page.tsx                ✅
+    (auth)/register/page.tsx             ✅
+    (main)/hotels/[id]/page.tsx          ✅
+    (main)/bookings/page.tsx             ✅
+    (main)/bookings/new/page.tsx         ✅
+    (main)/manage/page.tsx               ✅
+    (main)/admin/users/page.tsx          ✅
+    page.tsx                             ✅  (home / search)
+    layout.tsx                           ✅  (ChatWidget mounted here)
+  src/components/
+    layout/Navbar.tsx                    ✅
+    hotel/HotelCard.tsx                  ✅
+    hotel/HotelGrid.tsx                  ✅
+    hotel/RoomCard.tsx                   ✅
+    hotel/ReviewCard.tsx                 ✅
+    hotel/SearchBar.tsx                  ✅
+    booking/BookingCard.tsx              ✅
+    manage/ManagerHotelCard.tsx          ✅
+    manage/AddHotelModal.tsx             ✅
+    manage/AddRoomModal.tsx              ✅
+    manage/HotelBookingsModal.tsx        ✅
+    chat/ChatWidget.tsx                  ✅
+  src/lib/
+    api.ts                               ✅  (Axios + interceptors)
+    auth.ts                              ✅  (Zustand store)
+    hooks/useAuth.ts                     ✅
+    hooks/useHotels.ts                   ✅
+    hooks/useBookings.ts                 ✅
+    hooks/useReviews.ts                  ✅
+    hooks/useAI.ts                       ✅
+    hooks/useAdmin.ts                    ✅
+  src/types/index.ts                     ✅
+  src/middleware.ts                      ✅
+  Dockerfile                             ✅
+  .dockerignore                          ✅
+  next.config.ts                         ✅
+  .env.local                             ✅  (gitignored)
+  .env.docker                            ✅  (gitignored)
+
+auth-service/ (additions)
+  security/HeaderAuthenticationFilter.java  ✅
+  security/SecurityConfig.java              ✅  (updated)
+  config/AdminUserSeeder.java               ✅
+  controller/AdminController.java           ✅
+  service/AdminService.java                 ✅
+  dto/UserSummaryResponse.java              ✅
+  dto/AssignRoleRequest.java                ✅
+  test/service/AdminServiceTest.java        ✅
+  test/controller/AdminControllerIT.java    ✅
+```
 
 ---
 
@@ -859,9 +1005,9 @@ Phase 5  →  AI Assistant Service (RAG, chatbot)         ✅ DONE
 Phase 6  →  Review Service (MongoDB + Kafka)            ✅ DONE
 Phase 7  →  Notification Service (email, Kafka)         ✅ DONE
 Phase 8  →  Docker full stack assembly                  ✅ DONE
-Phase 9  →  Frontend (Next.js)                          ⬜ TODO
+Phase 9  →  Frontend (Next.js) + Admin Panel             ✅ DONE
 ```
 
 ---
 
-*Last updated: 2026-11-10 — Phases 0–8 complete. Only Phase 9 (Frontend) remaining.*
+*Last updated: 2026-11-12 — All phases complete. Full stack ready.*

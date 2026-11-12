@@ -30,6 +30,7 @@ import com.smartstay.auth.entity.RefreshToken;
 import com.smartstay.auth.entity.UserEntity;
 import com.smartstay.auth.enums.Role;
 import com.smartstay.auth.exceptions.BadCredentialsException;
+import com.smartstay.auth.exceptions.ForbiddenException;
 import com.smartstay.auth.exceptions.ResourceExistsException;
 import com.smartstay.auth.exceptions.ResourceNotFoundException;
 import com.smartstay.auth.repository.RefreshTokenRepository;
@@ -39,11 +40,16 @@ import com.smartstay.auth.repository.UserRepository;
 @MockitoSettings(strictness = Strictness.LENIENT)
 class AuthServiceTest {
 
-    @Mock private UserRepository userRepository;
-    @Mock private RefreshTokenRepository refreshTokenRepository;
-    @Mock private JwtService jwtService;
-    @Mock private PasswordEncoder passwordEncoder;
-    @Mock private SecurityProperties securityProperties;
+    @Mock
+    private UserRepository userRepository;
+    @Mock
+    private RefreshTokenRepository refreshTokenRepository;
+    @Mock
+    private JwtService jwtService;
+    @Mock
+    private PasswordEncoder passwordEncoder;
+    @Mock
+    private SecurityProperties securityProperties;
 
     @InjectMocks
     private AuthService authService;
@@ -63,7 +69,8 @@ class AuthServiceTest {
         validRefreshToken.setToken("valid-refresh-token");
         validRefreshToken.setUser(activeUser);
         validRefreshToken.setRevoked(false);
-        validRefreshToken.setExpiresAt(OffsetDateTime.now().plusDays(7));
+        validRefreshToken.setExpiresAt(OffsetDateTime.now()
+                                                     .plusDays(7));
 
         when(securityProperties.getAccessTokenExpiry()).thenReturn(900L);
         when(jwtService.generateAccessToken(any())).thenReturn("access-token");
@@ -76,8 +83,7 @@ class AuthServiceTest {
 
     @Test
     void register_shouldSaveUserAndReturnTokens() {
-        RegisterRequest request = new RegisterRequest(
-                "new@smartstay.com", "password123", "John", "Doe", Role.GUEST);
+        RegisterRequest request = new RegisterRequest("new@smartstay.com", "password123", "John", "Doe", Role.GUEST);
 
         when(userRepository.existsByEmail(request.email())).thenReturn(false);
         when(passwordEncoder.encode(anyString())).thenReturn("$2a$hashed");
@@ -94,22 +100,20 @@ class AuthServiceTest {
 
     @Test
     void register_shouldThrowWhenEmailAlreadyExists() {
-        RegisterRequest request = new RegisterRequest(
-                "existing@smartstay.com", "password123", "John", "Doe", Role.GUEST);
+        RegisterRequest request = new RegisterRequest("existing@smartstay.com", "password123", "John", "Doe",
+                Role.GUEST);
 
         when(userRepository.existsByEmail(request.email())).thenReturn(true);
 
-        assertThatThrownBy(() -> authService.register(request))
-                .isInstanceOf(ResourceExistsException.class)
-                .hasMessageContaining("existing@smartstay.com");
+        assertThatThrownBy(() -> authService.register(request)).isInstanceOf(ResourceExistsException.class)
+                                                               .hasMessageContaining("existing@smartstay.com");
 
         verify(userRepository, never()).save(any());
     }
 
     @Test
     void register_shouldHashPasswordBeforeSaving() {
-        RegisterRequest request = new RegisterRequest(
-                "new@smartstay.com", "plaintext", "John", "Doe", Role.GUEST);
+        RegisterRequest request = new RegisterRequest("new@smartstay.com", "plaintext", "John", "Doe", Role.GUEST);
 
         when(userRepository.existsByEmail(anyString())).thenReturn(false);
         when(passwordEncoder.encode("plaintext")).thenReturn("$2a$hashed");
@@ -118,6 +122,32 @@ class AuthServiceTest {
         authService.register(request);
 
         verify(passwordEncoder).encode("plaintext");
+    }
+
+    @Test
+    void register_shouldThrowForbiddenWhenRoleIsHotelManager() {
+        RegisterRequest request = new RegisterRequest("manager@smartstay.com", "password123", "Jane", "Doe",
+                Role.HOTEL_MANAGER);
+
+        assertThatThrownBy(() -> authService.register(request)).isInstanceOf(ForbiddenException.class)
+                                                               .hasMessageContaining("GUEST");
+
+        // Guard fires before any DB interaction
+        verify(userRepository, never()).existsByEmail(anyString());
+        verify(userRepository, never()).save(any());
+    }
+
+    @Test
+    void register_shouldThrowForbiddenWhenRoleIsAdmin() {
+        RegisterRequest request = new RegisterRequest("admin@smartstay.com", "password123", "Super", "Admin",
+                Role.ADMIN);
+
+        assertThatThrownBy(() -> authService.register(request)).isInstanceOf(ForbiddenException.class)
+                                                               .hasMessageContaining("GUEST");
+
+        // Guard fires before any DB interaction
+        verify(userRepository, never()).existsByEmail(anyString());
+        verify(userRepository, never()).save(any());
     }
 
     // -------------------------------------------------------------------------
@@ -143,9 +173,8 @@ class AuthServiceTest {
 
         when(userRepository.findByEmail(request.email())).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> authService.login(request))
-                .isInstanceOf(BadCredentialsException.class)
-                .hasMessage("Invalid credentials");
+        assertThatThrownBy(() -> authService.login(request)).isInstanceOf(BadCredentialsException.class)
+                                                            .hasMessage("Invalid credentials");
     }
 
     @Test
@@ -155,9 +184,8 @@ class AuthServiceTest {
         when(userRepository.findByEmail(request.email())).thenReturn(Optional.of(activeUser));
         when(passwordEncoder.matches("wrongpassword", activeUser.getPassword())).thenReturn(false);
 
-        assertThatThrownBy(() -> authService.login(request))
-                .isInstanceOf(BadCredentialsException.class)
-                .hasMessage("Invalid credentials");
+        assertThatThrownBy(() -> authService.login(request)).isInstanceOf(BadCredentialsException.class)
+                                                            .hasMessage("Invalid credentials");
     }
 
     @Test
@@ -167,9 +195,8 @@ class AuthServiceTest {
 
         when(userRepository.findByEmail(request.email())).thenReturn(Optional.of(activeUser));
 
-        assertThatThrownBy(() -> authService.login(request))
-                .isInstanceOf(BadCredentialsException.class)
-                .hasMessage("Invalid credentials");
+        assertThatThrownBy(() -> authService.login(request)).isInstanceOf(BadCredentialsException.class)
+                                                            .hasMessage("Invalid credentials");
 
         // Password check must NOT be called — inactive user short-circuits before it
         verify(passwordEncoder, never()).matches(anyString(), anyString());
@@ -183,8 +210,7 @@ class AuthServiceTest {
     void refresh_shouldIssueNewTokenPair() {
         RefreshRequest request = new RefreshRequest("valid-refresh-token");
 
-        when(refreshTokenRepository.findByToken("valid-refresh-token"))
-                .thenReturn(Optional.of(validRefreshToken));
+        when(refreshTokenRepository.findByToken("valid-refresh-token")).thenReturn(Optional.of(validRefreshToken));
         when(refreshTokenRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         AuthResponse response = authService.refresh(request);
@@ -197,8 +223,7 @@ class AuthServiceTest {
     void refresh_shouldRevokeOldToken() {
         RefreshRequest request = new RefreshRequest("valid-refresh-token");
 
-        when(refreshTokenRepository.findByToken("valid-refresh-token"))
-                .thenReturn(Optional.of(validRefreshToken));
+        when(refreshTokenRepository.findByToken("valid-refresh-token")).thenReturn(Optional.of(validRefreshToken));
         when(refreshTokenRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         authService.refresh(request);
@@ -211,30 +236,31 @@ class AuthServiceTest {
     void refresh_shouldThrowWhenTokenNotFound() {
         when(refreshTokenRepository.findByToken(anyString())).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> authService.refresh(new RefreshRequest("ghost-token")))
-                .isInstanceOf(ResourceNotFoundException.class);
+        assertThatThrownBy(() -> authService.refresh(new RefreshRequest("ghost-token"))).isInstanceOf(
+                ResourceNotFoundException.class);
     }
 
     @Test
     void refresh_shouldThrowWhenTokenRevoked() {
         validRefreshToken.setRevoked(true);
-        when(refreshTokenRepository.findByToken(anyString()))
-                .thenReturn(Optional.of(validRefreshToken));
+        when(refreshTokenRepository.findByToken(anyString())).thenReturn(Optional.of(validRefreshToken));
 
-        assertThatThrownBy(() -> authService.refresh(new RefreshRequest("revoked-token")))
-                .isInstanceOf(BadCredentialsException.class)
-                .hasMessageContaining("revoked");
+        assertThatThrownBy(() -> authService.refresh(new RefreshRequest("revoked-token"))).isInstanceOf(
+                                                                                                  BadCredentialsException.class)
+                                                                                          .hasMessageContaining(
+                                                                                                  "revoked");
     }
 
     @Test
     void refresh_shouldThrowWhenTokenExpired() {
-        validRefreshToken.setExpiresAt(OffsetDateTime.now().minusDays(1));
-        when(refreshTokenRepository.findByToken(anyString()))
-                .thenReturn(Optional.of(validRefreshToken));
+        validRefreshToken.setExpiresAt(OffsetDateTime.now()
+                                                     .minusDays(1));
+        when(refreshTokenRepository.findByToken(anyString())).thenReturn(Optional.of(validRefreshToken));
 
-        assertThatThrownBy(() -> authService.refresh(new RefreshRequest("expired-token")))
-                .isInstanceOf(BadCredentialsException.class)
-                .hasMessageContaining("expired");
+        assertThatThrownBy(() -> authService.refresh(new RefreshRequest("expired-token"))).isInstanceOf(
+                                                                                                  BadCredentialsException.class)
+                                                                                          .hasMessageContaining(
+                                                                                                  "expired");
     }
 
     // -------------------------------------------------------------------------
@@ -243,8 +269,7 @@ class AuthServiceTest {
 
     @Test
     void logout_shouldRevokeToken() {
-        when(refreshTokenRepository.findByToken("valid-refresh-token"))
-                .thenReturn(Optional.of(validRefreshToken));
+        when(refreshTokenRepository.findByToken("valid-refresh-token")).thenReturn(Optional.of(validRefreshToken));
         when(refreshTokenRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         authService.logout(new RefreshRequest("valid-refresh-token"));
@@ -257,7 +282,7 @@ class AuthServiceTest {
     void logout_shouldThrowWhenTokenNotFound() {
         when(refreshTokenRepository.findByToken(anyString())).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> authService.logout(new RefreshRequest("ghost-token")))
-                .isInstanceOf(ResourceNotFoundException.class);
+        assertThatThrownBy(() -> authService.logout(new RefreshRequest("ghost-token"))).isInstanceOf(
+                ResourceNotFoundException.class);
     }
 }
