@@ -10,9 +10,10 @@
 build:
 	docker compose -f docker-compose.yml build
 
-## Build a single service image: make build-service SERVICE=auth-service
+## Build a single service image (no cache): make build-service SERVICE=auth-service
 build-service:
-	docker compose -f docker-compose.yml build $(SERVICE)
+	docker compose -f docker-compose.yml build --no-cache $(SERVICE)
+	docker compose -f docker-compose.yml up -d $(SERVICE)
 
 ## Start everything (infra + all services), no override/hot-swap
 up:

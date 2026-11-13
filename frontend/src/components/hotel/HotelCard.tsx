@@ -1,7 +1,8 @@
 import Link from "next/link";
-import { MapPin, Star } from "lucide-react";
+import { MapPin } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
+import { StarRating } from "@/components/ui/StarRating";
 import type { HotelResponse } from "@/types";
 
 interface HotelCardProps {
@@ -31,10 +32,8 @@ export function HotelCard({hotel}: HotelCardProps) {
                         <h3 className="font-semibold text-sm leading-snug line-clamp-2">
                             {hotel.name}
                         </h3>
-                        <div className="flex shrink-0 mt-0.5">
-                            {Array.from({length: hotel.starRating}).map((_, i) => (
-                                <Star key={i} className="w-3 h-3 fill-yellow-400 text-yellow-400"/>
-                            ))}
+                        <div className="shrink-0 mt-0.5">
+                            <StarRating rating={hotel.starRating} className="w-3 h-3"/>
                         </div>
                     </div>
 

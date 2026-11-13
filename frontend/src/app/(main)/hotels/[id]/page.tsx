@@ -2,7 +2,8 @@
 
 import { use } from "react";
 import Link from "next/link";
-import { ArrowLeft, Clock, MapPin, Sparkles, Star } from "lucide-react";
+import { ArrowLeft, Clock, MapPin, Sparkles } from "lucide-react";
+import { StarRating } from "@/components/ui/StarRating";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -82,11 +83,7 @@ export default function HotelDetailPage({
                 <div className="space-y-2">
                     <div className="flex flex-wrap items-center gap-2">
                         <h1 className="text-2xl font-bold sm:text-3xl">{hotel.name}</h1>
-                        <div className="flex">
-                            {Array.from({length: hotel.starRating}).map((_, i) => (
-                                <Star key={i} className="h-4 w-4 fill-yellow-400 text-yellow-400"/>
-                            ))}
-                        </div>
+                        <StarRating rating={hotel.starRating} className="h-4 w-4"/>
                     </div>
                     <div className="flex items-center gap-1 text-sm text-muted-foreground">
                         <MapPin className="h-4 w-4 shrink-0"/>

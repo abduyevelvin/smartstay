@@ -26,15 +26,35 @@ public class ChatAssistantServiceImpl implements ChatAssistantService {
     private final ChatClient chatClient;
     private final ChatMemory chatMemory;
     private final HotelIndexingService hotelIndexingService;
+    private final HotelCreationService hotelCreationService;
 
     @Override
     public String chat(final String userId,
                        final String sessionId,
+                       final String userRole,
                        final String userMessage) {
         // Namespace the memory key so a user can never access another user's history,
         // even if they somehow obtain the other user's sessionId.
         final String safeSessionId = userId + ":" + sessionId;
-        log.info("Chat message received — userId: {}, sessionId: {}", userId, sessionId);
+        log.info("Chat message received — userId: {}, sessionId: {}, role: {}", userId, sessionId, userRole);
+
+        // ── Hotel Creation Flow (HOTEL_MANAGER only) ──────────────────────────
+        // Route to the stateful creation wizard when an active session exists.
+        if (hotelCreationService.hasActiveSession(safeSessionId)) {
+            return hotelCreationService.handleMessage(userId, safeSessionId, userMessage);
+        }
+
+        // Detect hotel-creation intent and start the wizard.
+        if (isHotelCreationIntent(userMessage)) {
+            if ("HOTEL_MANAGER".equals(userRole)) {
+                return hotelCreationService.start(safeSessionId);
+            } else {
+                return "I'm sorry, but hotel creation is only available to hotel managers. " +
+                       "If you'd like to become a hotel manager, please contact our admin team. " +
+                       "Is there anything else I can help you with? 😊";
+            }
+        }
+        // ─────────────────────────────────────────────────────────────────────
 
         // RAG step 1: try the vector store (requires an embedding model).
         List<Document> relevantDocs = List.of();
@@ -129,5 +149,24 @@ public class ChatAssistantServiceImpl implements ChatAssistantService {
 
         log.debug("Returning {} messages for userId: {}, sessionId: {}", history.size(), userId, sessionId);
         return history;
+    }
+
+    // ── Hotel creation intent detection ───────────────────────────────────────
+
+    /**
+     * Returns {@code true} when the user message indicates intent to create/register
+     * a new hotel. Checked before any RAG processing so the creation wizard can
+     * intercept the message first.
+     */
+    private boolean isHotelCreationIntent(final String message) {
+        final String lower = message.toLowerCase();
+        // Must mention "hotel" to avoid false positives on "create booking", etc.
+        if (!lower.contains("hotel")) {
+            return false;
+        }
+        return lower.contains("create") || lower.contains("add") || lower.contains("register")
+               || lower.contains("new hotel") || lower.contains("make") || lower.contains("build")
+               || lower.contains("open") || lower.contains("list my") || lower.contains("setup")
+               || lower.contains("set up") || lower.contains("start") || lower.contains("launch");
     }
 }

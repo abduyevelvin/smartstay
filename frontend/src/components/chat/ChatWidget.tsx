@@ -70,6 +70,7 @@ function TypingIndicator() {
 // ── Main widget ────────────────────────────────────────────────────────────
 export function ChatWidget() {
     const {isAuthenticated, user} = useAuthStore();
+    const isManager = user?.role === "HOTEL_MANAGER";
     const [open, setOpen] = useState(false);
     // sessionId is derived from the authenticated user — starts empty until the
     // user identity is known so we never send requests without a valid session.
@@ -181,7 +182,7 @@ export function ChatWidget() {
                                 <div>
                                     <p className="text-sm font-semibold leading-none">SmartStay AI</p>
                                     <p className="mt-0.5 text-xs text-muted-foreground">
-                                        Ask me anything about hotels
+                                        {isManager ? "Hotel assistant & manager tools" : "Ask me anything about hotels"}
                                     </p>
                                 </div>
                             </div>
@@ -208,10 +209,19 @@ export function ChatWidget() {
                                         <Bot className="h-6 w-6 text-primary"/>
                                     </div>
                                     <p className="text-sm font-medium">Hi! I&apos;m your SmartStay assistant.</p>
-                                    <p className="text-xs text-muted-foreground max-w-[260px]">
-                                        Ask me to recommend hotels, check availability, or anything
-                                        else about your stay.
-                                    </p>
+                                    {isManager ? (
+                                        <p className="text-xs text-muted-foreground max-w-[260px]">
+                                            Ask me about hotels, or say{" "}
+                                            <span
+                                                className="font-medium text-foreground">&ldquo;create a hotel&rdquo;</span>{" "}
+                                            to start the AI hotel creation wizard. 🏨
+                                        </p>
+                                    ) : (
+                                        <p className="text-xs text-muted-foreground max-w-[260px]">
+                                            Ask me to recommend hotels, check availability, or anything
+                                            else about your stay.
+                                        </p>
+                                    )}
                                 </div>
                             )}
 
@@ -232,7 +242,7 @@ export function ChatWidget() {
                                     value={input}
                                     onChange={(e) => setInput(e.target.value)}
                                     onKeyDown={handleKeyDown}
-                                    placeholder="Ask about hotels, cities, amenities…"
+                                    placeholder={isManager ? "Ask about hotels, or 'create a hotel'…" : "Ask about hotels, cities, amenities…"}
                                     disabled={isPending}
                                     className="flex-1 resize-none bg-transparent text-sm outline-none placeholder:text-muted-foreground disabled:opacity-50 max-h-28"
                                     style={{minHeight: "1.5rem"}}

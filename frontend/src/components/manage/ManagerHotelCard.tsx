@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { BedDouble, BookOpen, Building2, MapPin, Pencil, Star, Trash2 } from "lucide-react";
+import { BedDouble, BookOpen, Building2, MapPin, Pencil, Trash2 } from "lucide-react";
+import { StarRating } from "@/components/ui/StarRating";
 import { Button } from "@/components/ui/button";
 import { AddRoomModal } from "./AddRoomModal";
 import { EditHotelModal } from "./EditHotelModal";
@@ -44,9 +45,7 @@ export function ManagerHotelCard({hotel}: ManagerHotelCardProps) {
                             </h3>
                         </div>
                         <div className="flex items-center gap-0.5 shrink-0">
-                            {Array.from({length: hotel.starRating}).map((_, i) => (
-                                <Star key={i} className="h-3.5 w-3.5 fill-yellow-400 text-yellow-400"/>
-                            ))}
+                            <StarRating rating={hotel.starRating} className="h-3.5 w-3.5"/>
                         </div>
                     </div>
 

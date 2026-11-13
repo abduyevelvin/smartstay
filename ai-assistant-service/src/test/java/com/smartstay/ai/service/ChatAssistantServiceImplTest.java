@@ -2,10 +2,10 @@ package com.smartstay.ai.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.util.List;
@@ -27,6 +27,7 @@ import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
 
+import com.smartstay.ai.client.service.HotelIndexingService;
 import com.smartstay.ai.dto.MessageDto;
 
 @ExtendWith(MockitoExtension.class)
@@ -41,6 +42,12 @@ class ChatAssistantServiceImplTest {
 
     @Mock
     private ChatMemory chatMemory;
+
+    @Mock
+    private HotelIndexingService hotelIndexingService;
+
+    @Mock
+    private HotelCreationService hotelCreationService;
 
     @InjectMocks
     private ChatAssistantServiceImpl chatAssistantService;
@@ -61,6 +68,8 @@ class ChatAssistantServiceImplTest {
                  .thenReturn(requestSpec);
         lenient().when(requestSpec.user(any(Consumer.class)))
                  .thenReturn(requestSpec);
+        lenient().when(requestSpec.user(anyString()))
+                 .thenReturn(requestSpec);
         lenient().when(requestSpec.call())
                  .thenReturn(callSpec);
     }
@@ -69,11 +78,47 @@ class ChatAssistantServiceImplTest {
     private static final String SESSION_ID = "session-1";
     // The safe key the service builds internally
     private static final String SAFE_KEY = USER_ID + ":" + SESSION_ID;
+    private static final String ROLE_GUEST = "GUEST";
+    private static final String ROLE_MANAGER = "HOTEL_MANAGER";
 
-    // ── chat ─────────────────────────────────────────────────────────────────
+    // ── hotel creation intent — manager ──────────────────────────────────────
+
+    @Test
+    void chat_whenManagerSaysCreateHotel_startsCreationWizard() {
+        when(hotelCreationService.hasActiveSession(SAFE_KEY)).thenReturn(false);
+        when(hotelCreationService.start(SAFE_KEY)).thenReturn("I'd love to help you create a new hotel!");
+
+        String result = chatAssistantService.chat(USER_ID, SESSION_ID, ROLE_MANAGER, "I want to create a hotel");
+
+        assertThat(result).contains("create a new hotel");
+        verify(hotelCreationService).start(SAFE_KEY);
+    }
+
+    @Test
+    void chat_whenGuestSaysCreateHotel_returnsAccessDeniedMessage() {
+        when(hotelCreationService.hasActiveSession(SAFE_KEY)).thenReturn(false);
+
+        String result = chatAssistantService.chat(USER_ID, SESSION_ID, ROLE_GUEST, "I want to create a hotel");
+
+        assertThat(result).containsIgnoringCase("only available to hotel managers");
+    }
+
+    @Test
+    void chat_whenActiveCreationSession_routesToCreationService() {
+        when(hotelCreationService.hasActiveSession(SAFE_KEY)).thenReturn(true);
+        when(hotelCreationService.handleMessage(USER_ID, SAFE_KEY, "random")).thenReturn("Generating...");
+
+        String result = chatAssistantService.chat(USER_ID, SESSION_ID, ROLE_MANAGER, "random");
+
+        assertThat(result).isEqualTo("Generating...");
+        verify(hotelCreationService).handleMessage(USER_ID, SAFE_KEY, "random");
+    }
+
+    // ── regular RAG chat ─────────────────────────────────────────────────────
 
     @Test
     void chat_whenDocsFound_returnsLlmReply() {
+        when(hotelCreationService.hasActiveSession(SAFE_KEY)).thenReturn(false);
         var doc = Document.builder()
                           .id("h1")
                           .text("Hotel Hilton details")
@@ -81,29 +126,34 @@ class ChatAssistantServiceImplTest {
         when(vectorStore.similaritySearch((SearchRequest) any())).thenReturn(List.of(doc));
         when(callSpec.content()).thenReturn("The Hilton is a great choice!");
 
-        String result = chatAssistantService.chat(USER_ID, SESSION_ID, "find me a hotel");
+        String result = chatAssistantService.chat(USER_ID, SESSION_ID, ROLE_GUEST, "find me a hotel");
 
         assertThat(result).isEqualTo("The Hilton is a great choice!");
         verify(vectorStore).similaritySearch((SearchRequest) any());
-        // The advisor must have been called with the namespaced key
         verify(requestSpec).advisors(any(Advisor.class));
     }
 
     @Test
-    void chat_whenNoDocs_returnsFallbackWithoutCallingLlm() {
+    void chat_whenVectorStoreEmpty_fallsBackToDirectFetch_thenCallsLlm() {
+        when(hotelCreationService.hasActiveSession(SAFE_KEY)).thenReturn(false);
         when(vectorStore.similaritySearch((SearchRequest) any())).thenReturn(List.of());
+        var doc = Document.builder()
+                          .id("h2")
+                          .text("Grand Hotel Paris")
+                          .build();
+        when(hotelIndexingService.fetchAllAsDocuments()).thenReturn(List.of(doc));
+        when(callSpec.content()).thenReturn("Grand Hotel Paris is available.");
 
-        String result = chatAssistantService.chat(USER_ID, SESSION_ID, "anything");
+        String result = chatAssistantService.chat(USER_ID, SESSION_ID, ROLE_GUEST, "any hotels?");
 
-        assertThat(result).contains("couldn't find any hotels");
-        verifyNoInteractions(chatClient);
+        assertThat(result).isEqualTo("Grand Hotel Paris is available.");
+        verify(hotelIndexingService).fetchAllAsDocuments();
     }
 
     // ── getHistory ───────────────────────────────────────────────────────────
 
     @Test
     void getHistory_mapsUserAndAssistantMessages() {
-        // chatMemory is keyed by the namespaced safeSessionId
         when(chatMemory.get(SAFE_KEY)).thenReturn(List.of(new UserMessage("hello"), new AssistantMessage("hi there")));
 
         List<MessageDto> history = chatAssistantService.getHistory(USER_ID, SESSION_ID);
@@ -143,7 +193,6 @@ class ChatAssistantServiceImplTest {
 
     @Test
     void getHistory_differentUserSameSessionId_usesDistinctKey() {
-        // Two users sharing the same client-side sessionId must get different memory keys
         String otherSafeKey = "other-user:" + SESSION_ID;
         when(chatMemory.get(SAFE_KEY)).thenReturn(List.of(new UserMessage("private message")));
         when(chatMemory.get(otherSafeKey)).thenReturn(List.of());

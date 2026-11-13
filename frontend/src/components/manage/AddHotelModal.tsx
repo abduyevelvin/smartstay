@@ -127,7 +127,7 @@ export function AddHotelModal({open, onOpenChange}: AddHotelModalProps) {
                             <FormField control={form.control} name="starRating" render={({field}) => (
                                 <FormItem>
                                     <FormLabel>Stars (1–5)</FormLabel>
-                                    <FormControl><Input type="number" min={1} max={5} {...field} /></FormControl>
+                                    <FormControl><Input type="number" min={1} max={5} step={0.5} {...field} /></FormControl>
                                     <FormMessage/>
                                 </FormItem>
                             )}/>

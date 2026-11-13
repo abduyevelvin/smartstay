@@ -43,10 +43,12 @@ public class AiController {
     // POST /api/v1/ai/chat
     // Body: { "sessionId": "abc123", "message": "Which hotels have a pool?" }
     @PostMapping("/chat")
-    public ResponseEntity<Map<String, String>> chat(@RequestHeader("X-User-Id") final String userId,
-                                                    @Valid @RequestBody final ChatRequest request) {
-        log.info("POST /chat — userId: {}, sessionId: {}", userId, request.sessionId());
-        final String reply = chatAssistantService.chat(userId, request.sessionId(), request.message());
+    public ResponseEntity<Map<String, String>> chat(
+            @RequestHeader("X-User-Id") final String userId,
+            @RequestHeader(value = "X-User-Role", defaultValue = "GUEST") final String userRole,
+            @Valid @RequestBody final ChatRequest request) {
+        log.info("POST /chat — userId: {}, role: {}, sessionId: {}", userId, userRole, request.sessionId());
+        final String reply = chatAssistantService.chat(userId, request.sessionId(), userRole, request.message());
         return ResponseEntity.ok(Map.of("reply", reply, "sessionId", request.sessionId()));
     }
 

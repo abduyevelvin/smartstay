@@ -68,10 +68,11 @@ class AiControllerIT {
 
     @Test
     void chat_validRequest_returns200WithReplyAndSessionId() throws Exception {
-        when(chatAssistantService.chat("user-1", "session-abc", "find me a hotel")).thenReturn(
+        when(chatAssistantService.chat("user-1", "session-abc", "GUEST", "find me a hotel")).thenReturn(
                 "The Marriott is a great choice!");
 
         mockMvc.perform(post("/api/v1/ai/chat").header("X-User-Id", "user-1")
+                                               .header("X-User-Role", "GUEST")
                                                .contentType(MediaType.APPLICATION_JSON)
                                                .content("""
                                                        {"sessionId":"session-abc","message":"find me a hotel"}
@@ -79,6 +80,21 @@ class AiControllerIT {
                .andExpect(status().isOk())
                .andExpect(jsonPath("$.reply").value("The Marriott is a great choice!"))
                .andExpect(jsonPath("$.sessionId").value("session-abc"));
+    }
+
+    @Test
+    void chat_managerCreatesHotel_returns200() throws Exception {
+        when(chatAssistantService.chat("mgr-1", "session-xyz", "HOTEL_MANAGER", "create a hotel")).thenReturn(
+                "I'd love to help you create a new hotel!");
+
+        mockMvc.perform(post("/api/v1/ai/chat").header("X-User-Id", "mgr-1")
+                                               .header("X-User-Role", "HOTEL_MANAGER")
+                                               .contentType(MediaType.APPLICATION_JSON)
+                                               .content("""
+                                                       {"sessionId":"session-xyz","message":"create a hotel"}
+                                                       """))
+               .andExpect(status().isOk())
+               .andExpect(jsonPath("$.reply").value("I'd love to help you create a new hotel!"));
     }
 
     @Test
