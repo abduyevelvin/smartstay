@@ -297,8 +297,8 @@ class BookingControllerIT {
                                                            .plusDays(20), LocalDate.now()
                                                                                    .plusDays(23),
                 BookingStatus.CONFIRMED);
-        // Booking for a different guest — should not appear
-        saveBooking(ROOM_ID, HOTEL_ID, UUID.randomUUID(), CHECK_IN, CHECK_OUT, BookingStatus.CONFIRMED);
+        // Booking for a different guest (different room to avoid exclusion constraint) — should not appear
+        saveBooking("room-3", HOTEL_ID, UUID.randomUUID(), CHECK_IN, CHECK_OUT, BookingStatus.CONFIRMED);
 
         mockMvc.perform(get("/api/v1/bookings/my").header("X-User-Id", GUEST_ID.toString())
                                                   .header("X-User-Email", EMAIL)

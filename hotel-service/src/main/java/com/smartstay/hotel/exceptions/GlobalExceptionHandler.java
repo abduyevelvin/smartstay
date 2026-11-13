@@ -8,6 +8,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
@@ -54,6 +55,15 @@ public class GlobalExceptionHandler {
                            .map(err -> err.getField() + ": " + err.getDefaultMessage())
                            .collect(Collectors.joining(", "));
         log.warn("Validation failed: {}", message);
+        return build(HttpStatus.BAD_REQUEST, message, request);
+    }
+
+    // 400 — missing required @RequestParam
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    public ResponseEntity<ErrorResponse> handleMissingParam(MissingServletRequestParameterException ex,
+                                                            HttpServletRequest request) {
+        String message = "Required parameter '" + ex.getParameterName() + "' is missing";
+        log.warn("Missing request parameter: {}", message);
         return build(HttpStatus.BAD_REQUEST, message, request);
     }
 
