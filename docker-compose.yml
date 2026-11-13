@@ -353,10 +353,23 @@ services:
       POSTGRES_VECTOR_PASSWORD: ${POSTGRES_VECTOR_PASSWORD}
       LITELLM_API_KEY: ${LITELLM_API_KEY}
       LITELLM_BASE_URL: ${LITELLM_BASE_URL}
+      # Docker hostname overrides (application-docker.yml also covers these;
+      # env vars ensure correct routing even if the image cache is stale)
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-vector:5432/vector_db
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      FEIGN_HOTEL_SERVICE_URL: http://hotel-service:8082
+      # AiConfig defines its own vectorStore bean; exclude Boot's auto-config to prevent conflict
+      SPRING_AUTOCONFIGURE_EXCLUDE: org.springframework.ai.vectorstore.pgvector.autoconfigure.PgVectorStoreAutoConfiguration
     ports:
       - "8085:8085"
     networks:
       - smartstay-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8085/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
 
   # ── Notification Service ───────────────────
   notification-service:

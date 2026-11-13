@@ -5,6 +5,7 @@ import static org.springframework.http.HttpStatus.UNAUTHORIZED;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.cloud.gateway.filter.GlobalFilter;
 import org.springframework.core.Ordered;
+import org.springframework.http.HttpMethod;
 import org.springframework.stereotype.Component;
 import org.springframework.util.AntPathMatcher;
 import org.springframework.web.server.ServerWebExchange;
@@ -39,6 +40,14 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
                                                               .build())
                                              .build();
 
+        // Always let CORS preflight through — browsers send OPTIONS without an
+        // Authorization header, so blocking it here would break every cross-origin
+        // request before it even starts. The actual CORS policy is enforced by
+        // CorsWebFilter; the JWT check is irrelevant for OPTIONS.
+        if (HttpMethod.OPTIONS.equals(strippedExchange.getRequest().getMethod())) {
+            return chain.filter(strippedExchange);
+        }
+
         final var requestPath = strippedExchange.getRequest()
                                                 .getPath()
                                                 .value();
@@ -47,6 +56,17 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
             if (antPathMatcher.match(publicPath, requestPath)) {
                 log.debug("Public path matched [{}] — skipping JWT validation", requestPath);
                 return chain.filter(strippedExchange);
+            }
+        }
+
+        // GET-only public paths: no JWT required for read requests, but write
+        // methods (POST/PUT/DELETE) on the same paths still need a valid token.
+        if (HttpMethod.GET.equals(strippedExchange.getRequest().getMethod())) {
+            for (String publicGetPath : securityProperties.getPublicGetPaths()) {
+                if (antPathMatcher.match(publicGetPath, requestPath)) {
+                    log.debug("Public GET path matched [{}] — skipping JWT validation", requestPath);
+                    return chain.filter(strippedExchange);
+                }
             }
         }
 

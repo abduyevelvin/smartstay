@@ -55,7 +55,7 @@ public class BookingController {
     }
 
     @GetMapping("/my")
-    @PreAuthorize("hasRole('GUEST')")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<Page<BookingResponse>> getMyBookings(Authentication auth,
                                                                @PageableDefault(size = 20) Pageable pageable) {
         final var principal = (UserPrincipal) auth.getPrincipal();
@@ -63,7 +63,7 @@ public class BookingController {
     }
 
     @GetMapping("/hotel/{hotelId}")
-    @PreAuthorize("hasRole('HOTEL_MANAGER')")
+    @PreAuthorize("hasRole('HOTEL_MANAGER') or hasRole('ADMIN')")
     public ResponseEntity<java.util.List<BookingResponse>> getHotelBookings(@PathVariable String hotelId,
                                                                             @RequestParam(
                                                                                     required = false) BookingStatus status,

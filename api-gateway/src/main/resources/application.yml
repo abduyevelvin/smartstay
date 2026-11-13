@@ -101,6 +101,15 @@ spring:
                 redis-rate-limiter.replenishRate: 5
                 redis-rate-limiter.burstCapacity: 60
                 key-resolver: "#{@userKeyResolver}"
+            - name: Retry
+              args:
+                retries: 2
+                statuses: SERVICE_UNAVAILABLE
+                methods: GET        # POST /chat must NOT be retried — it is not idempotent
+                backoff:
+                  firstBackoff: 100ms
+                  maxBackoff: 500ms
+                  factor: 2
             - name: CircuitBreaker
               args:
                 name: ai-assistant-service-circuit
@@ -112,6 +121,38 @@ spring:
       host: localhost
       port: 6379
       password: ${REDIS_PASSWORD}
+
+# ── Resilience4j circuit-breaker defaults ─────────────────────────────────────
+# Small sliding window so a burst of startup errors doesn't lock the breaker for
+# a minute. 5 s open-state means recovery is fast in dev.
+resilience4j:
+  circuitbreaker:
+    configs:
+      default:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 5s
+        permitted-number-of-calls-in-half-open-state: 3
+        automatic-transition-from-open-to-half-open-enabled: true
+    instances:
+      auth-service-circuit:
+        base-config: default
+      hotel-service-circuit:
+        base-config: default
+      booking-service-circuit:
+        base-config: default
+      review-service-circuit:
+        base-config: default
+      ai-assistant-service-circuit:
+        base-config: default
+  # AI LLM calls are slow (embedding retry + model inference can take 10-30 s).
+  # Override the default 1 s timeLimiter so the circuit breaker does not time out
+  # before the AI service has a chance to respond.
+  timelimiter:
+    instances:
+      ai-assistant-service-circuit:
+        timeout-duration: 30s
 
 server:
   port: 8080
@@ -135,3 +176,9 @@ app:
     public-paths:
       - /api/v1/auth/**
       - /actuator/**
+    # GET-only public paths: browsing hotels, reading reviews, and AI hotel summaries
+    # require no login. Write methods (POST/PUT/DELETE) on these paths still require JWT.
+    public-get-paths:
+      - /api/v1/hotels/**
+      - /api/v1/reviews/**
+      - /api/v1/ai/hotels/**/summary

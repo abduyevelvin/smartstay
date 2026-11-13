@@ -15,6 +15,7 @@ import com.smartstay.hotel.dto.CreateRoomRequest;
 import com.smartstay.hotel.dto.HotelResponse;
 import com.smartstay.hotel.dto.RoomResponse;
 import com.smartstay.hotel.dto.UpdateHotelRequest;
+import com.smartstay.hotel.event.HotelCreatedEvent;
 import com.smartstay.hotel.event.HotelDeletedEvent;
 import com.smartstay.hotel.event.HotelEventProducer;
 import com.smartstay.hotel.exceptions.ForbiddenException;
@@ -48,6 +49,9 @@ public class HotelServiceImpl implements HotelService {
 
         final var saved = hotelRepository.save(hotelDocument);
         log.info("Hotel created — id={}, managerId={}", saved.getId(), managerId);
+
+        // Notify AI service to index the new hotel immediately (no waiting for hourly scheduler)
+        hotelEventProducer.publishHotelCreated(new HotelCreatedEvent(saved.getId(), managerId));
 
         return hotelMapper.toResponse(saved);
     }
@@ -93,6 +97,9 @@ public class HotelServiceImpl implements HotelService {
 
         final var saved = hotelRepository.save(hotelDocument);
         log.info("Hotel updated — id={}, managerId={}", saved.getId(), managerId);
+
+        // Re-index the updated hotel in the AI vector store immediately
+        hotelEventProducer.publishHotelCreated(new HotelCreatedEvent(saved.getId(), managerId));
 
         return hotelMapper.toResponse(saved);
     }
@@ -145,6 +152,9 @@ public class HotelServiceImpl implements HotelService {
 
         final var saved = roomRepository.save(roomDocument);
         log.info("Room added — roomId={}, hotelId={}, managerId={}", saved.getId(), hotelId, managerId);
+
+        // Re-index the hotel so the AI chat immediately reflects the new room.
+        hotelEventProducer.publishHotelCreated(new HotelCreatedEvent(hotelId, managerId));
 
         return roomMapper.toResponse(saved);
     }

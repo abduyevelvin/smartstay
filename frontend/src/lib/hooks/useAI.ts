@@ -23,7 +23,7 @@ const fetchChatHistory = (sessionId: string) =>
     api.get<MessageDto[]>(`/api/v1/ai/chat/${sessionId}/history`).then((r) => r.data);
 
 const fetchHotelSummary = (hotelId: string) =>
-    api.post<HotelSummaryResponse>(`/api/v1/ai/hotels/${hotelId}/summary`).then((r) => r.data);
+    api.get<HotelSummaryResponse>(`/api/v1/ai/hotels/${hotelId}/summary`).then((r) => r.data);
 
 // ── Mutation hooks ─────────────────────────────────────────────────────────
 export function useRecommend() {

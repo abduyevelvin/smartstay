@@ -35,7 +35,7 @@ export function setSessionCookie() {
     document.cookie = `${SESSION_COOKIE}=1; path=/; SameSite=Lax; max-age=604800`; // 7 days
 }
 
-function clearSessionCookie() {
+export function clearSessionCookie() {
     if (typeof document === "undefined") return;
     document.cookie = `${SESSION_COOKIE}=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT`;
 }

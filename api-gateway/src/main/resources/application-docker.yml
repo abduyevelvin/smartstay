@@ -92,6 +92,15 @@ spring:
                 redis-rate-limiter.replenishRate: 5
                 redis-rate-limiter.burstCapacity: 60
                 key-resolver: "#{@userKeyResolver}"
+            - name: Retry
+              args:
+                retries: 2
+                statuses: SERVICE_UNAVAILABLE
+                methods: GET        # POST /chat must NOT be retried — it is not idempotent
+                backoff:
+                  firstBackoff: 100ms
+                  maxBackoff: 500ms
+                  factor: 2
             - name: CircuitBreaker
               args:
                 name: ai-assistant-service-circuit

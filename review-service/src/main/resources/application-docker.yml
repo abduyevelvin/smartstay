@@ -6,7 +6,7 @@ spring:
     mongodb:
       # MONGO_REVIEW_USER / MONGO_REVIEW_PASSWORD are injected by docker-compose.yml.
       # The dedicated review_db user was created by infra/init-mongo.js at first start.
-      uri: mongodb://${MONGO_REVIEW_USER}:${MONGO_REVIEW_PASSWORD}@mongodb:27017/review_db?authSource=admin
+      uri: mongodb://${MONGO_REVIEW_USER}:${MONGO_REVIEW_PASSWORD}@mongodb:27017/review_db?authSource=review_db
   kafka:
     bootstrap-servers: kafka:9092
 

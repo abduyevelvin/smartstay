@@ -59,10 +59,10 @@ public class AiController {
         return ResponseEntity.ok(history);
     }
 
-    // POST /api/v1/ai/hotels/{hotelId}/summary
-    @PostMapping("/hotels/{hotelId}/summary")
+    // GET /api/v1/ai/hotels/{hotelId}/summary  (public — no auth required)
+    @GetMapping("/hotels/{hotelId}/summary")
     public ResponseEntity<Map<String, String>> summary(@PathVariable final String hotelId) {
-        log.info("POST /hotels/{}/summary", hotelId);
+        log.info("GET /hotels/{}/summary", hotelId);
         final String summary = recommendationService.summarizeHotel(hotelId);
         return ResponseEntity.ok(Map.of("hotelId", hotelId, "summary", summary));
     }

@@ -65,6 +65,25 @@ public class HotelIndexingServiceImpl implements HotelIndexingService {
     }
 
     @Override
+    public List<Document> fetchAllAsDocuments() {
+        log.debug("Fetching all hotels directly from hotel-service (vector-store fallback)");
+        final var page = hotelServiceClient.getAllHotels(new HotelSearchParams(null, null, null, 0, 200));
+        if (page.content().isEmpty()) {
+            log.warn("fetchAllAsDocuments: no hotels returned from hotel-service");
+            return List.of();
+        }
+        return page.content().stream().map(hotel -> {
+            final var rooms = hotelServiceClient.getRooms(hotel.id());
+            return Document.builder()
+                           .id(hotel.id())
+                           .text(buildDocumentText(hotel, rooms))
+                           .metadata(Map.of("hotelId", hotel.id(), "city", hotel.city(),
+                                   "country", hotel.country(), "starRating", hotel.starRating()))
+                           .build();
+        }).collect(Collectors.toList());
+    }
+
+    @Override
     public void reindexAll() {
         log.info("Starting full hotel reindexing...");
         final var page = hotelServiceClient.getAllHotels(new HotelSearchParams(null, null, null, 0, 1000));

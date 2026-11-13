@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.Map;
 
 import org.springframework.data.mongodb.core.index.CompoundIndex;
+import org.springframework.data.mongodb.core.index.CompoundIndexes;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 import lombok.Getter;
@@ -12,7 +13,14 @@ import lombok.Setter;
 @Getter
 @Setter
 @Document(collection = "hotels")
-@CompoundIndex(name = "idx_city_stars", def = "{'city': 1, 'starRating': 1}")
+@CompoundIndexes({
+        // Performance index: browsing by city + star rating
+        @CompoundIndex(name = "idx_city_stars", def = "{'city': 1, 'starRating': 1}"),
+        // Uniqueness guard: a manager cannot create the same hotel twice in the same city
+        @CompoundIndex(name = "idx_unique_manager_name_city",
+                def = "{'managerId': 1, 'name': 1, 'city': 1}",
+                unique = true),
+})
 public class HotelDocument extends BaseDocument {
 
     private String name;

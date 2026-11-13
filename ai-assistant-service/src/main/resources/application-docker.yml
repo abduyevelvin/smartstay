@@ -1,3 +1,6 @@
+# ── Docker profile — overrides application.yml when SPRING_PROFILES_ACTIVE=docker ──
+# Hostnames match the docker-compose.yml service names.
+
 spring:
   datasource:
     url: jdbc:postgresql://postgres-vector:5432/vector_db

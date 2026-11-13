@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import axios from "axios";
-import { setSessionCookie, useAuthStore } from "@/lib/auth";
+import { clearSessionCookie, setSessionCookie, useAuthStore } from "@/lib/auth";
 import { decodeJwt } from "@/lib/jwt";
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
@@ -26,6 +26,12 @@ export function AuthHydrator() {
 
         // Already hydrated (normal navigation) or no previous session → nothing to do
         if (!refreshToken || accessToken) return;
+
+        // We have a refresh token but no access token (page reload).
+        // Clear the stale session cookie NOW so the middleware won't redirect the
+        // user away from /login or /register while the refresh is still in flight.
+        // setSessionCookie() restores it on success; clearAuth() keeps it gone on failure.
+        clearSessionCookie();
 
         axios
             .post<{ accessToken: string }>(`${BASE_URL}/api/v1/auth/refresh`, {refreshToken})

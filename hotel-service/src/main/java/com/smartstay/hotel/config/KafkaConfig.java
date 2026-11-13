@@ -15,4 +15,12 @@ public class KafkaConfig {
                            .replicas(1)
                            .build();
     }
+
+    @Bean
+    public NewTopic hotelCreatedTopic() {
+        return TopicBuilder.name("hotel.created")
+                           .partitions(1)
+                           .replicas(1)
+                           .build();
+    }
 }

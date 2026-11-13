@@ -11,6 +11,7 @@ import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.stereotype.Service;
 
+import com.smartstay.ai.client.service.HotelIndexingService;
 import com.smartstay.ai.dto.MessageDto;
 
 import lombok.RequiredArgsConstructor;
@@ -24,6 +25,7 @@ public class ChatAssistantServiceImpl implements ChatAssistantService {
     private final VectorStore vectorStore;
     private final ChatClient chatClient;
     private final ChatMemory chatMemory;
+    private final HotelIndexingService hotelIndexingService;
 
     @Override
     public String chat(final String userId,
@@ -34,39 +36,70 @@ public class ChatAssistantServiceImpl implements ChatAssistantService {
         final String safeSessionId = userId + ":" + sessionId;
         log.info("Chat message received — userId: {}, sessionId: {}", userId, sessionId);
 
-        final var relevantDocs = vectorStore.similaritySearch(SearchRequest.builder()
-                                                                           .query(userMessage)
-                                                                           .topK(3)
-                                                                           .build());
-
-        if (relevantDocs == null || relevantDocs.isEmpty()) {
-            log.warn("No relevant hotel context found for userId: {}, sessionId: {}", userId, sessionId);
-            return "I couldn't find any hotels matching your request. "
-                    + "Please try different search criteria or check back later.";
+        // RAG step 1: try the vector store (requires an embedding model).
+        List<Document> relevantDocs = List.of();
+        try {
+            final var results = vectorStore.similaritySearch(SearchRequest.builder()
+                                                                          .query(userMessage)
+                                                                          .topK(5)
+                                                                          .build());
+            if (results != null && !results.isEmpty()) {
+                relevantDocs = results;
+                log.debug("Vector store returned {} docs for safeSessionId: {}", relevantDocs.size(), safeSessionId);
+            }
+        } catch (Exception e) {
+            log.warn("Vector store search unavailable ({}), will use direct hotel-service fallback", e.getMessage());
         }
 
-        log.debug("Retrieved {} relevant hotel documents for safeSessionId: {}", relevantDocs.size(), safeSessionId);
+        // RAG step 2: if the vector store yielded nothing (empty store or embedding model
+        // down), fall back to fetching all hotels directly from hotel-service.
+        // This is always accurate and does not require an embedding model.
+        if (relevantDocs.isEmpty()) {
+            log.info("Vector store empty — falling back to direct hotel-service fetch for safeSessionId: {}",
+                    safeSessionId);
+            try {
+                relevantDocs = hotelIndexingService.fetchAllAsDocuments();
+            } catch (Exception e) {
+                log.error("Direct hotel-service fetch also failed for safeSessionId: {} — {}", safeSessionId,
+                        e.getMessage(), e);
+            }
+        }
 
+        // No hotels at all in the system (neither vector store nor hotel-service returned anything).
+        if (relevantDocs.isEmpty()) {
+            log.debug("No hotel context found anywhere for safeSessionId: {}", safeSessionId);
+            return "I'm sorry, I couldn't find any hotels matching your search in our system. "
+                    + "Please try different criteria — a different city, star rating, or check back later "
+                    + "as new properties are added regularly.";
+        }
+
+        // Hotels found — build the RAG prompt and call the LLM.
+        final var promptBuilder = chatClient.prompt()
+                                            .advisors(MessageChatMemoryAdvisor.builder(chatMemory)
+                                                                              .conversationId(safeSessionId)
+                                                                              .build());
+
+        log.debug("Retrieved {} hotel docs for safeSessionId: {}", relevantDocs.size(), safeSessionId);
         final var context = relevantDocs.stream()
                                         .map(Document::getText)
                                         .collect(Collectors.joining("\n---\n"));
 
-        // Spring AI 1.0.0: constructor is private — must use builder
-        // maxMessages is configured on MessageWindowChatMemory bean in AiConfig
-        final var reply = chatClient.prompt()
-                                    .advisors(MessageChatMemoryAdvisor.builder(chatMemory)
-                                                                      .conversationId(safeSessionId)
-                                                                      .build())
-                                    .user(u -> u.text("""
-                                                        Context from our hotel database:
-                                                        {context}
-                                                        
-                                                        User: {message}
-                                                        """)
-                                                .param("context", context)
-                                                .param("message", userMessage))
-                                    .call()
-                                    .content();
+        final String reply;
+        try {
+            reply = promptBuilder.user(u -> u.text("""
+                                                     Context from our hotel database (ONLY recommend hotels listed here):
+                                                     {context}
+                                                     
+                                                     User: {message}
+                                                     """)
+                                             .param("context", context)
+                                             .param("message", userMessage))
+                                 .call()
+                                 .content();
+        } catch (Exception e) {
+            log.error("LLM call failed for userId: {}, sessionId: {} — {}", userId, sessionId, e.getMessage(), e);
+            return "I'm having trouble reaching the AI model right now. Please try again in a moment.";
+        }
 
         log.info("Chat reply generated for userId: {}, sessionId: {}", userId, sessionId);
         return reply;

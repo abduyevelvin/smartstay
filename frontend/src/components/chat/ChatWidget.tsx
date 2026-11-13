@@ -7,9 +7,11 @@ import { useChat, useChatHistory } from "@/lib/hooks/useAI";
 import { useAuthStore } from "@/lib/auth";
 import type { MessageDto } from "@/types";
 
-// ── Per-browser-tab session ────────────────────────────────────────────────
-function getOrCreateSessionId(): string {
-    const key = "smartstay_chat_session";
+// ── Per-user, per-browser-tab session ─────────────────────────────────────
+// Scoped to the authenticated user so switching accounts never leaks one
+// user's chat history into another user's widget.
+function getOrCreateSessionId(userId: string): string {
+    const key = `smartstay_chat_session_${userId}`;
     let id = sessionStorage.getItem(key);
     if (!id) {
         id = crypto.randomUUID();
@@ -20,7 +22,9 @@ function getOrCreateSessionId(): string {
 
 // ── Single message bubble ──────────────────────────────────────────────────
 function MessageBubble({msg}: { msg: MessageDto }) {
-    const isUser = msg.role === "USER";
+    // Server history returns lowercase "user"/"assistant" (Spring AI MessageType.getValue());
+    // locally-created optimistic messages use uppercase "USER". Normalise here.
+    const isUser = msg.role.toUpperCase() === "USER";
     return (
         <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
             {!isUser && (
@@ -65,15 +69,27 @@ function TypingIndicator() {
 
 // ── Main widget ────────────────────────────────────────────────────────────
 export function ChatWidget() {
-    const {isAuthenticated} = useAuthStore();
+    const {isAuthenticated, user} = useAuthStore();
     const [open, setOpen] = useState(false);
-    const [sessionId] = useState<string>(() =>
-        typeof window !== "undefined" ? getOrCreateSessionId() : ""
-    );
+    // sessionId is derived from the authenticated user — starts empty until the
+    // user identity is known so we never send requests without a valid session.
+    const [sessionId, setSessionId] = useState<string>("");
     const [messages, setMessages] = useState<MessageDto[]>([]);
     const [input, setInput] = useState("");
     const bottomRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLTextAreaElement>(null);
+
+    // When the authenticated user changes (login / logout / account switch):
+    //  1. Generate (or retrieve) a session ID scoped to that user.
+    //  2. Clear in-memory messages so a previous user's chat is never shown.
+    useEffect(() => {
+        if (user?.id) {
+            setSessionId(getOrCreateSessionId(user.id));
+        } else {
+            setSessionId("");
+        }
+        setMessages([]);
+    }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const {data: history, isLoading: historyLoading} = useChatHistory(
         open ? sessionId : ""
@@ -191,7 +207,7 @@ export function ChatWidget() {
                                         className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
                                         <Bot className="h-6 w-6 text-primary"/>
                                     </div>
-                                    <p className="text-sm font-medium">Hi! I'm your SmartStay assistant.</p>
+                                    <p className="text-sm font-medium">Hi! I&apos;m your SmartStay assistant.</p>
                                     <p className="text-xs text-muted-foreground max-w-[260px]">
                                         Ask me to recommend hotels, check availability, or anything
                                         else about your stay.

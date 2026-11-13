@@ -3,6 +3,7 @@ package com.smartstay.hotel.exceptions;
 import java.time.OffsetDateTime;
 import java.util.stream.Collectors;
 
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -35,6 +36,15 @@ public class GlobalExceptionHandler {
                                                               HttpServletRequest request) {
         log.warn("Resource conflict: {}", ex.getMessage());
         return build(HttpStatus.CONFLICT, ex.getMessage(), request);
+    }
+
+    // 409 — MongoDB unique-index violation (e.g., hotel with same name+city already exists for this manager)
+    @ExceptionHandler(DuplicateKeyException.class)
+    public ResponseEntity<ErrorResponse> handleDuplicateKey(DuplicateKeyException ex,
+                                                            HttpServletRequest request) {
+        log.warn("Duplicate key violation at {}: {}", request.getRequestURI(), ex.getMessage());
+        return build(HttpStatus.CONFLICT,
+                "A hotel with this name already exists in the same city for your account", request);
     }
 
     // 403 — caller is not the hotel owner

@@ -2,6 +2,12 @@ spring:
   application:
     name: ai-assistant-service
 
+  autoconfigure:
+    exclude:
+      # AiConfig manually defines vectorStore with custom dimensions/distance/schema settings.
+      # Exclude the Boot autoconfiguration to prevent duplicate bean registration.
+      - org.springframework.ai.vectorstore.pgvector.autoconfigure.PgVectorStoreAutoConfiguration
+
   datasource:
     url: jdbc:postgresql://localhost:5434/vector_db
     username: ${POSTGRES_VECTOR_USER}
@@ -23,6 +29,11 @@ spring:
       embedding:
         options:
           model: ${EMBEDDING_MODEL:text-embedding-3-small}
+    # Do not retry on 4xx errors — a 400 (invalid model name) will never succeed
+    # on retry. Retrying only adds latency and triggers the gateway circuit breaker.
+    retry:
+      max-attempts: 1
+      exclude-on-http-codes: 400, 401, 403, 404
 
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:29092}
@@ -33,6 +44,9 @@ spring:
       value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
       properties:
         spring.json.trusted.packages: "com.smartstay.*"
+        # hotel-service serialises HotelCreatedEvent with its own package name as the __TypeId__
+        # header. Map it to the local mirror class so the AI service can deserialise it.
+        spring.json.type.mapping: "com.smartstay.hotel.event.HotelCreatedEvent:com.smartstay.ai.event.HotelCreatedEvent"
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.springframework.kafka.support.serializer.JsonSerializer

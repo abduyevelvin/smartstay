@@ -1,15 +1,18 @@
 "use client";
 
+import { useState } from "react";
 import type { Resolver } from "react-hook-form";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { ImageIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { AxiosError } from "axios";
 import { useCreateHotel } from "@/lib/hooks/useHotels";
 import { getErrorMessage } from "@/lib/error";
 
@@ -24,6 +27,7 @@ const schema = z.object({
     address: z.string().min(1, "Address is required"),
     starRating: z.coerce.number().min(1).max(5),
     amenities: z.string().optional(),
+    imageUrl: z.string().url("Must be a valid URL").optional().or(z.literal("")),
     checkInTime: z.string().min(1, "Check-in time is required"),
     checkOutTime: z.string().min(1, "Check-out time is required"),
 });
@@ -37,23 +41,32 @@ interface AddHotelModalProps {
 
 export function AddHotelModal({open, onOpenChange}: AddHotelModalProps) {
     const {mutate: createHotel, isPending, error} = useCreateHotel();
+    const [imgError, setImgError] = useState(false);
 
     const form = useForm<FormData>({
         resolver: zodResolver(schema) as Resolver<FormData>,
         defaultValues: {
             name: "", description: "", city: "", country: "",
-            address: "", starRating: 3, amenities: "",
+            address: "", starRating: 3, amenities: "", imageUrl: "",
             checkInTime: "14:00", checkOutTime: "12:00",
         },
     });
 
+    const imageUrl = form.watch("imageUrl");
+
     const onSubmit = (data: FormData) => {
+        const images = data.imageUrl ? [data.imageUrl] : [];
         createHotel(
-            {...data, amenities: parseAmenities(data.amenities)},
+            {
+                ...data,
+                amenities: parseAmenities(data.amenities),
+                images,
+            },
             {
                 onSuccess: () => {
                     onOpenChange(false);
                     form.reset();
+                    setImgError(false);
                 },
             }
         );
@@ -143,11 +156,56 @@ export function AddHotelModal({open, onOpenChange}: AddHotelModalProps) {
                             </FormItem>
                         )}/>
 
-                        {error && <p className="text-sm text-destructive">{getErrorMessage(error)}</p>}
+                        {/* Image URL + live preview */}
+                        <FormField control={form.control} name="imageUrl" render={({field}) => (
+                            <FormItem>
+                                <FormLabel>Main image <span
+                                    className="text-muted-foreground font-normal">(URL, optional)</span></FormLabel>
+                                <FormControl>
+                                    <Input
+                                        placeholder="https://example.com/hotel.jpg"
+                                        {...field}
+                                        onChange={(e) => {
+                                            setImgError(false);
+                                            field.onChange(e);
+                                        }}
+                                    />
+                                </FormControl>
+                                <FormMessage/>
+                                {imageUrl && !imgError && (
+                                    <div className="mt-2 h-36 rounded-md border bg-muted overflow-hidden">
+                                        <img
+                                            src={imageUrl}
+                                            alt="Preview"
+                                            className="w-full h-full object-cover"
+                                            onError={() => setImgError(true)}
+                                        />
+                                    </div>
+                                )}
+                                {imageUrl && imgError && (
+                                    <div className="mt-2 h-36 rounded-md border bg-muted flex flex-col items-center justify-center gap-1 text-muted-foreground">
+                                        <ImageIcon className="w-6 h-6"/>
+                                        <span className="text-xs">Could not load image</span>
+                                    </div>
+                                )}
+                            </FormItem>
+                        )}/>
+
+                        {error && (
+                            <p className="text-sm text-destructive">
+                                {error instanceof AxiosError && error.response?.status === 503
+                                    ? "The server didn't respond in time — your hotel may have been created. " +
+                                      "Please close this dialog and check your hotel list before trying again."
+                                    : getErrorMessage(error)}
+                            </p>
+                        )}
 
                         <div className="flex justify-end gap-2 pt-1">
                             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-                            <Button type="submit" disabled={isPending}>
+                            <Button
+                                type="submit"
+                                disabled={isPending || (error instanceof AxiosError && error.response?.status === 503)}
+                            >
                                 {isPending ? "Creating…" : "Create hotel"}
                             </Button>
                         </div>

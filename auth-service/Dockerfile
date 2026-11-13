@@ -21,7 +21,11 @@ COPY notification-service/pom.xml notification-service/pom.xml
 
 # Pre-download this module's dependencies into the local Maven cache.
 # If pom.xml hasn't changed, this layer is served from cache — no network hit.
-RUN mvn dependency:go-offline -pl auth-service --no-transfer-progress -q
+RUN for attempt in 1 2 3; do \
+      mvn dependency:go-offline -pl auth-service --no-transfer-progress && break; \
+      if [ "$attempt" -eq 3 ]; then exit 1; fi; \
+      echo "go-offline attempt $attempt/3 failed, retrying in 15s..."; sleep 15; \
+    done
 
 # ── Source & compile layer ─────────────────────────────────────────────────────
 # Only copy this service's source. Other modules' source never lands in this image.

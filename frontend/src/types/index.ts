@@ -51,6 +51,7 @@ export interface CreateHotelRequest {
     address: string;
     starRating: number;
     amenities: string[];
+    images?: string[];
     checkInTime: string;
     checkOutTime: string;
 }
@@ -63,6 +64,7 @@ export interface UpdateHotelRequest {
     address?: string;
     starRating?: number;
     amenities?: string[];
+    images?: string[];
     checkInTime?: string;
     checkOutTime?: string;
 }

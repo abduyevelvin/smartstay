@@ -15,7 +15,11 @@ COPY review-service/pom.xml       review-service/pom.xml
 COPY ai-assistant-service/pom.xml ai-assistant-service/pom.xml
 COPY notification-service/pom.xml notification-service/pom.xml
 
-RUN mvn dependency:go-offline -pl ai-assistant-service --no-transfer-progress -q
+RUN for attempt in 1 2 3; do \
+      mvn dependency:go-offline -pl ai-assistant-service --no-transfer-progress && break; \
+      if [ "$attempt" -eq 3 ]; then exit 1; fi; \
+      echo "go-offline attempt $attempt/3 failed, retrying in 15s..."; sleep 15; \
+    done
 
 COPY ai-assistant-service/src ai-assistant-service/src
 
