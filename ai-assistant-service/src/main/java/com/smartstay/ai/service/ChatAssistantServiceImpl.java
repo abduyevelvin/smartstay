@@ -65,37 +65,43 @@ public class ChatAssistantServiceImpl implements ChatAssistantService {
             }
         }
 
-        // No hotels at all in the system (neither vector store nor hotel-service returned anything).
-        if (relevantDocs.isEmpty()) {
-            log.debug("No hotel context found anywhere for safeSessionId: {}", safeSessionId);
-            return "I'm sorry, I couldn't find any hotels matching your search in our system. "
-                    + "Please try different criteria — a different city, star rating, or check back later "
-                    + "as new properties are added regularly.";
-        }
-
-        // Hotels found — build the RAG prompt and call the LLM.
+        // Always call the LLM — never short-circuit with a hardcoded response.
+        // When hotel context is available inject it as RAG; when empty the system
+        // prompt already tells the model to say no listings match and invite the
+        // user to try different criteria. General greetings / questions that don't
+        // need hotel data are answered naturally by the model.
         final var promptBuilder = chatClient.prompt()
                                             .advisors(MessageChatMemoryAdvisor.builder(chatMemory)
                                                                               .conversationId(safeSessionId)
                                                                               .build());
 
         log.debug("Retrieved {} hotel docs for safeSessionId: {}", relevantDocs.size(), safeSessionId);
-        final var context = relevantDocs.stream()
-                                        .map(Document::getText)
-                                        .collect(Collectors.joining("\n---\n"));
 
         final String reply;
         try {
-            reply = promptBuilder.user(u -> u.text("""
-                                                     Context from our hotel database (ONLY recommend hotels listed here):
-                                                     {context}
-                                                     
-                                                     User: {message}
-                                                     """)
-                                             .param("context", context)
-                                             .param("message", userMessage))
-                                 .call()
-                                 .content();
+            if (relevantDocs.isEmpty()) {
+                // No hotel context — call LLM with just the user message.
+                // The system prompt handles hotel queries gracefully and lets
+                // the model respond normally to greetings / general questions.
+                log.debug("No hotel context — calling LLM without RAG context for safeSessionId: {}", safeSessionId);
+                reply = promptBuilder.user(userMessage)
+                                     .call()
+                                     .content();
+            } else {
+                final var context = relevantDocs.stream()
+                                                .map(Document::getText)
+                                                .collect(Collectors.joining("\n---\n"));
+                reply = promptBuilder.user(u -> u.text("""
+                                                         Context from our hotel database (ONLY recommend hotels listed here):
+                                                         {context}
+                                                         
+                                                         User: {message}
+                                                         """)
+                                                 .param("context", context)
+                                                 .param("message", userMessage))
+                                     .call()
+                                     .content();
+            }
         } catch (Exception e) {
             log.error("LLM call failed for userId: {}, sessionId: {} — {}", userId, sessionId, e.getMessage(), e);
             return "I'm having trouble reaching the AI model right now. Please try again in a moment.";
