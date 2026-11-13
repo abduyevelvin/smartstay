@@ -18,7 +18,8 @@ spring:
       api-key: ${LITELLM_API_KEY}
       chat:
         options:
-          model: ${CHAT_MODEL:gpt-4o-mini}
+          model: ${CHAT_MODEL:openai-glob-luna-56-cheap}
+          temperature: 1.0
       embedding:
         options:
           model: ${EMBEDDING_MODEL:text-embedding-3-small}
