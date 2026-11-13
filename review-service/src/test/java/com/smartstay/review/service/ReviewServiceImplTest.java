@@ -113,7 +113,19 @@ class ReviewServiceImplTest {
 
         verify(reviewRepository).save(argThat(doc -> GUEST_ID.toString()
                                                              .equals(doc.getGuestId()) && GUEST_NAME.equals(
-                doc.getGuestName()) && doc.getRating() == 5 && HOTEL_ID.equals(doc.getHotelId())));
+                doc.getGuestName()) && doc.getRating() == 5 && HOTEL_ID.equals(doc.getHotelId()) && doc.isVerified()));
+    }
+
+    @Test
+    void createReview_verifiedFlagIsSetToTrue() {
+        when(bookingServiceClient.verifyStay(GUEST_ID, HOTEL_ID)).thenReturn(new VerifyStayResponse(true));
+        when(reviewRepository.existsByHotelIdAndGuestId(HOTEL_ID, GUEST_ID.toString())).thenReturn(false);
+        when(reviewRepository.save(any())).thenReturn(savedDocument);
+        when(reviewMapper.toResponse(savedDocument)).thenReturn(reviewResponse);
+
+        reviewService.createReview(request, GUEST_ID, GUEST_NAME);
+
+        verify(reviewRepository).save(argThat(doc -> doc.isVerified()));
     }
 
     @Test

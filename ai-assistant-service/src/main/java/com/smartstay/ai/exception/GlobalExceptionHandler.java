@@ -6,6 +6,7 @@ import java.util.Map;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
@@ -31,6 +32,17 @@ public class GlobalExceptionHandler {
         log.warn("Validation error: {}", message);
         return ResponseEntity.badRequest()
                              .body(errorBody(400, "Bad Request", message, request));
+    }
+
+    // 400 — required request header missing (e.g. X-User-Id not forwarded by gateway)
+    @ExceptionHandler(MissingRequestHeaderException.class)
+    public ResponseEntity<Map<String, Object>> handleMissingHeader(final MissingRequestHeaderException ex,
+                                                                   final WebRequest request) {
+
+        log.warn("Missing required header: {}", ex.getHeaderName());
+        return ResponseEntity.badRequest()
+                             .body(errorBody(400, "Bad Request",
+                                     "Required header '" + ex.getHeaderName() + "' is missing", request));
     }
 
     // 400 — explicit illegal argument (e.g. blank sessionId passed programmatically)

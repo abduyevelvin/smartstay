@@ -1,13 +1,17 @@
 package com.smartstay.hotel.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.when;
 
 import java.util.List;
+import java.util.Map;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -22,6 +26,7 @@ import org.testcontainers.containers.MongoDBContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import com.smartstay.hotel.client.BookingServiceClient;
 import com.smartstay.hotel.dto.CreateHotelRequest;
 import com.smartstay.hotel.dto.CreateRoomRequest;
 import com.smartstay.hotel.dto.HotelResponse;
@@ -51,6 +56,8 @@ class HotelControllerIT {
     HotelRepository hotelRepository;
     @Autowired
     RoomRepository roomRepository;
+    @MockBean
+    BookingServiceClient bookingServiceClient;
 
     @BeforeEach
     void cleanup() {
@@ -230,13 +237,44 @@ class HotelControllerIT {
     // ── GET /api/v1/hotels/{id}/availability ──────────────────────────────────
 
     @Test
-    void getAvailableRooms_shouldReturn200() {
+    void getAvailableRooms_shouldReturn200WithDateParams() {
         HotelResponse created = createHotel("mgr-1");
+        // No enabled rooms → service returns early without calling Feign; still 200
 
-        ResponseEntity<String> response = restTemplate.getForEntity("/api/v1/hotels/" + created.id() + "/availability",
+        ResponseEntity<String> response = restTemplate.getForEntity(
+                "/api/v1/hotels/" + created.id() + "/availability?checkIn=2027-01-10&checkOut=2027-01-15",
                 String.class);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+    }
+
+    @Test
+    void getAvailableRooms_withRooms_callsBookingServiceAndReturnsAvailableOnly() {
+        HotelResponse created = createHotel("mgr-1");
+        // Add a room via the rooms endpoint
+        RoomResponse room = restTemplate.exchange("/api/v1/hotels/" + created.id() + "/rooms", HttpMethod.POST,
+                                                new HttpEntity<>(validRoomRequest(101), managerHeaders("mgr-1")), RoomResponse.class)
+                                        .getBody();
+
+        // Stub booking-service: this room is available
+        when(bookingServiceClient.checkBulkAvailability(any())).thenReturn(Map.of(room.id(), true));
+
+        ResponseEntity<List> response = restTemplate.getForEntity(
+                "/api/v1/hotels/" + created.id() + "/availability?checkIn=2027-01-10&checkOut=2027-01-15", List.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).hasSize(1);
+    }
+
+    @Test
+    void getAvailableRooms_missingDateParams_shouldReturn400() {
+        HotelResponse created = createHotel("mgr-1");
+
+        // No checkIn/checkOut params — should get 400 Bad Request
+        ResponseEntity<String> response = restTemplate.getForEntity("/api/v1/hotels/" + created.id() + "/availability",
+                String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
     }
 
     // ── PATCH /api/v1/hotels/{id}/rating ─────────────────────────────────────

@@ -29,5 +29,9 @@ management:
     health:
       show-details: always
 
+feign:
+  booking-service:
+    url: ${BOOKING_SERVICE_URL:http://localhost:8083}
+
 app:
   internal-secret: ${INTERNAL_SECRET:change_me_internal_secret_dev}

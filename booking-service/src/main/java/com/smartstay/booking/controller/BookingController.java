@@ -24,6 +24,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.smartstay.booking.dto.BookingResponse;
+import com.smartstay.booking.dto.BulkAvailabilityRequest;
 import com.smartstay.booking.dto.CreateBookingRequest;
 import com.smartstay.booking.enums.BookingStatus;
 import com.smartstay.booking.security.UserPrincipal;
@@ -99,6 +100,17 @@ public class BookingController {
 
         boolean available = bookingService.checkRoomAvailability(roomId, checkIn, checkOut);
         return ResponseEntity.ok(Map.of("available", available));
+    }
+
+    /**
+     * Bulk availability check — called internally by hotel-service.
+     * Accepts a list of room IDs and a date range; returns a map of roomId → available.
+     */
+    @PostMapping("/bulk-availability")
+    public ResponseEntity<Map<String, Boolean>> checkBulkAvailability(@RequestBody BulkAvailabilityRequest request) {
+
+        return ResponseEntity.ok(
+                bookingService.checkBulkAvailability(request.roomIds(), request.checkIn(), request.checkOut()));
     }
 
     @GetMapping("/verify-stay")

@@ -384,6 +384,38 @@ class BookingControllerIT {
                .andExpect(jsonPath("$.length()").value(1));
     }
 
+    // ── POST /api/v1/bookings/bulk-availability ───────────────────────────────
+
+    @Test
+    void checkBulkAvailability_noBookings_returnsAllAvailable() throws Exception {
+        String body = """
+                {"roomIds":["%s","%s"],"checkIn":"%s","checkOut":"%s"}
+                """.formatted(ROOM_ID, "other-room", CHECK_IN, CHECK_OUT)
+                   .strip();
+
+        mockMvc.perform(post("/api/v1/bookings/bulk-availability").contentType("application/json")
+                                                                  .content(body))
+               .andExpect(status().isOk())
+               .andExpect(jsonPath("$." + ROOM_ID).value(true))
+               .andExpect(jsonPath("$.other-room").value(true));
+    }
+
+    @Test
+    void checkBulkAvailability_oneRoomBooked_returnsCorrectMap() throws Exception {
+        saveBooking(ROOM_ID, HOTEL_ID, GUEST_ID, CHECK_IN, CHECK_OUT, BookingStatus.CONFIRMED);
+
+        String body = """
+                {"roomIds":["%s","%s"],"checkIn":"%s","checkOut":"%s"}
+                """.formatted(ROOM_ID, "free-room", CHECK_IN, CHECK_OUT)
+                   .strip();
+
+        mockMvc.perform(post("/api/v1/bookings/bulk-availability").contentType("application/json")
+                                                                  .content(body))
+               .andExpect(status().isOk())
+               .andExpect(jsonPath("$." + ROOM_ID).value(false))
+               .andExpect(jsonPath("$.free-room").value(true));
+    }
+
     // ── GET /api/v1/bookings/availability ─────────────────────────────────────
 
     @Test

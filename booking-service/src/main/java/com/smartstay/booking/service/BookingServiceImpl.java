@@ -6,7 +6,10 @@ import static com.smartstay.booking.enums.BookingStatus.CONFIRMED;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
@@ -203,6 +206,23 @@ public class BookingServiceImpl implements BookingService {
         log.debug("Checking room availability for roomId={}, checkIn={}, checkOut={}", roomId, checkIn, checkOut);
 
         return !bookingRepository.existsOverlappingBooking(roomId, checkIn, checkOut, CANCELLED);
+    }
+
+    @Override
+    public Map<String, Boolean> checkBulkAvailability(final List<String> roomIds,
+                                                      final LocalDate checkIn,
+                                                      final LocalDate checkOut) {
+        log.debug("Bulk availability check — {} rooms, checkIn={}, checkOut={}", roomIds.size(), checkIn, checkOut);
+
+        if (roomIds.isEmpty()) {
+            log.info("No rooms to check availability for");
+            return Map.of();
+        }
+
+        final Set<String> bookedIds = bookingRepository.findBookedRoomIds(roomIds, checkIn, checkOut, CANCELLED);
+
+        return roomIds.stream()
+                      .collect(Collectors.toMap(id -> id, id -> !bookedIds.contains(id)));
     }
 
     @Override

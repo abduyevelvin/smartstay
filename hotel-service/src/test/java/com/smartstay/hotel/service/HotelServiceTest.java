@@ -3,14 +3,14 @@ package com.smartstay.hotel.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyBoolean;
-import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -22,6 +22,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 
+import com.smartstay.hotel.client.BookingServiceClient;
 import com.smartstay.hotel.document.HotelDocument;
 import com.smartstay.hotel.document.RoomDocument;
 import com.smartstay.hotel.dto.CreateHotelRequest;
@@ -30,6 +31,7 @@ import com.smartstay.hotel.dto.HotelResponse;
 import com.smartstay.hotel.dto.RoomResponse;
 import com.smartstay.hotel.dto.UpdateHotelRequest;
 import com.smartstay.hotel.enums.Type;
+import com.smartstay.hotel.event.HotelEventProducer;
 import com.smartstay.hotel.exceptions.ForbiddenException;
 import com.smartstay.hotel.exceptions.ResourceExistsException;
 import com.smartstay.hotel.exceptions.ResourceNotFoundException;
@@ -41,47 +43,53 @@ import com.smartstay.hotel.repository.RoomRepository;
 @ExtendWith(MockitoExtension.class)
 class HotelServiceTest {
 
-    @Mock private HotelRepository hotelRepository;
-    @Mock private RoomRepository  roomRepository;
-    @Mock private HotelMapper     hotelMapper;
-    @Mock private RoomMapper      roomMapper;
+    @Mock
+    private HotelRepository hotelRepository;
+    @Mock
+    private RoomRepository roomRepository;
+    @Mock
+    private HotelMapper hotelMapper;
+    @Mock
+    private RoomMapper roomMapper;
+    @Mock
+    private HotelEventProducer hotelEventProducer;
+    @Mock
+    private BookingServiceClient bookingServiceClient;
 
     @InjectMocks
     private HotelServiceImpl hotelService;
 
-    private static final String MANAGER_ID   = "manager-1";
+    private static final String MANAGER_ID = "manager-1";
     private static final String OTHER_MANAGER = "manager-2";
-    private static final String HOTEL_ID     = "hotel-1";
-    private static final String ROOM_ID      = "room-1";
+    private static final String HOTEL_ID = "hotel-1";
+    private static final String ROOM_ID = "room-1";
 
     private HotelDocument hotelDocument;
     private HotelResponse hotelResponse;
-    private RoomDocument  roomDocument;
-    private RoomResponse  roomResponse;
+    private RoomDocument roomDocument;
+    private RoomResponse roomResponse;
 
     @BeforeEach
     void setup() {
         hotelDocument = new HotelDocument();
         hotelDocument.setManagerId(MANAGER_ID);
 
-        hotelResponse = new HotelResponse(HOTEL_ID, "Grand Hotel", "Luxury hotel",
-                "Baku", "Azerbaijan", "Main St", 5.0, MANAGER_ID,
-                4.5, 100, "14:00", "12:00", List.of(), List.of(), null, null, null);
+        hotelResponse = new HotelResponse(HOTEL_ID, "Grand Hotel", "Luxury hotel", "Baku", "Azerbaijan", "Main St", 5.0,
+                MANAGER_ID, 4.5, 100, "14:00", "12:00", List.of(), List.of(), null, null, null);
 
         roomDocument = new RoomDocument();
         roomDocument.setHotelId(HOTEL_ID);
         roomDocument.setRoomNumber(101);
 
-        roomResponse = new RoomResponse(ROOM_ID, HOTEL_ID, 101, Type.DOUBLE,
-                150.0, 2, 1, true, List.of(), List.of(), null, null);
+        roomResponse = new RoomResponse(ROOM_ID, HOTEL_ID, 101, Type.DOUBLE, 150.0, 2, 1, true, List.of(), List.of(),
+                null, null);
     }
 
     // ── createHotel ───────────────────────────────────────────────────────────
 
     @Test
     void createHotel_shouldSaveAndReturnResponse() {
-        CreateHotelRequest request = new CreateHotelRequest(
-                "Grand Hotel", "Luxury hotel", "Baku", "Azerbaijan",
+        CreateHotelRequest request = new CreateHotelRequest("Grand Hotel", "Luxury hotel", "Baku", "Azerbaijan",
                 "Main St", 5.0, "14:00", "12:00", List.of(), List.of(), null);
 
         when(hotelMapper.toDocument(request)).thenReturn(hotelDocument);
@@ -97,9 +105,8 @@ class HotelServiceTest {
 
     @Test
     void createHotel_shouldSetManagerIdOnDocument() {
-        CreateHotelRequest request = new CreateHotelRequest(
-                "Grand Hotel", "Luxury", "Baku", "Azerbaijan",
-                "Main St", 5.0, "14:00", "12:00", null, null, null);
+        CreateHotelRequest request = new CreateHotelRequest("Grand Hotel", "Luxury", "Baku", "Azerbaijan", "Main St",
+                5.0, "14:00", "12:00", null, null, null);
 
         when(hotelMapper.toDocument(request)).thenReturn(hotelDocument);
         when(hotelRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
@@ -126,9 +133,8 @@ class HotelServiceTest {
     void getHotelById_shouldThrowWhenNotFound() {
         when(hotelRepository.findById(anyString())).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> hotelService.getHotelById("ghost-id"))
-                .isInstanceOf(ResourceNotFoundException.class)
-                .hasMessageContaining("ghost-id");
+        assertThatThrownBy(() -> hotelService.getHotelById("ghost-id")).isInstanceOf(ResourceNotFoundException.class)
+                                                                       .hasMessageContaining("ghost-id");
     }
 
     // ── searchHotels ──────────────────────────────────────────────────────────
@@ -151,8 +157,8 @@ class HotelServiceTest {
 
     @Test
     void updateHotel_shouldUpdateAndReturnResponse() {
-        UpdateHotelRequest request = new UpdateHotelRequest(
-                "Updated Hotel", null, null, null, null, null, null, null, null, null, null);
+        UpdateHotelRequest request = new UpdateHotelRequest("Updated Hotel", null, null, null, null, null, null, null,
+                null, null, null);
 
         when(hotelRepository.findById(HOTEL_ID)).thenReturn(Optional.of(hotelDocument));
         when(hotelRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
@@ -171,8 +177,7 @@ class HotelServiceTest {
 
         assertThatThrownBy(() -> hotelService.updateHotel("ghost-id",
                 new UpdateHotelRequest(null, null, null, null, null, null, null, null, null, null, null),
-                MANAGER_ID))
-                .isInstanceOf(ResourceNotFoundException.class);
+                MANAGER_ID)).isInstanceOf(ResourceNotFoundException.class);
     }
 
     @Test
@@ -181,8 +186,7 @@ class HotelServiceTest {
 
         assertThatThrownBy(() -> hotelService.updateHotel(HOTEL_ID,
                 new UpdateHotelRequest(null, null, null, null, null, null, null, null, null, null, null),
-                OTHER_MANAGER))
-                .isInstanceOf(ForbiddenException.class);
+                OTHER_MANAGER)).isInstanceOf(ForbiddenException.class);
 
         verify(hotelRepository, never()).save(any());
     }
@@ -203,8 +207,8 @@ class HotelServiceTest {
     void deleteHotel_shouldThrowWhenNotFound() {
         when(hotelRepository.findById(anyString())).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> hotelService.deleteHotel("ghost-id", MANAGER_ID))
-                .isInstanceOf(ResourceNotFoundException.class);
+        assertThatThrownBy(() -> hotelService.deleteHotel("ghost-id", MANAGER_ID)).isInstanceOf(
+                ResourceNotFoundException.class);
 
         verify(hotelRepository, never()).deleteById(anyString());
         verify(roomRepository, never()).deleteAllByHotelId(anyString());
@@ -214,8 +218,8 @@ class HotelServiceTest {
     void deleteHotel_shouldThrowWhenNotOwner() {
         when(hotelRepository.findById(HOTEL_ID)).thenReturn(Optional.of(hotelDocument));
 
-        assertThatThrownBy(() -> hotelService.deleteHotel(HOTEL_ID, OTHER_MANAGER))
-                .isInstanceOf(ForbiddenException.class);
+        assertThatThrownBy(() -> hotelService.deleteHotel(HOTEL_ID, OTHER_MANAGER)).isInstanceOf(
+                ForbiddenException.class);
 
         verify(hotelRepository, never()).deleteById(anyString());
         verify(roomRepository, never()).deleteAllByHotelId(anyString());
@@ -243,9 +247,9 @@ class HotelServiceTest {
     void addRoom_shouldThrowWhenHotelNotFound() {
         when(hotelRepository.findById(anyString())).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> hotelService.addRoom("ghost-id",
-                new CreateRoomRequest(101, Type.DOUBLE, 150.0, 2, 1, null, null), MANAGER_ID))
-                .isInstanceOf(ResourceNotFoundException.class);
+        assertThatThrownBy(
+                () -> hotelService.addRoom("ghost-id", new CreateRoomRequest(101, Type.DOUBLE, 150.0, 2, 1, null, null),
+                        MANAGER_ID)).isInstanceOf(ResourceNotFoundException.class);
 
         verify(roomRepository, never()).save(any());
     }
@@ -254,9 +258,9 @@ class HotelServiceTest {
     void addRoom_shouldThrowWhenNotOwner() {
         when(hotelRepository.findById(HOTEL_ID)).thenReturn(Optional.of(hotelDocument));
 
-        assertThatThrownBy(() -> hotelService.addRoom(HOTEL_ID,
-                new CreateRoomRequest(101, Type.DOUBLE, 150.0, 2, 1, null, null), OTHER_MANAGER))
-                .isInstanceOf(ForbiddenException.class);
+        assertThatThrownBy(
+                () -> hotelService.addRoom(HOTEL_ID, new CreateRoomRequest(101, Type.DOUBLE, 150.0, 2, 1, null, null),
+                        OTHER_MANAGER)).isInstanceOf(ForbiddenException.class);
 
         verify(roomRepository, never()).save(any());
     }
@@ -268,9 +272,9 @@ class HotelServiceTest {
         when(hotelRepository.findById(HOTEL_ID)).thenReturn(Optional.of(hotelDocument));
         when(roomRepository.existsByHotelIdAndRoomNumber(HOTEL_ID, 101)).thenReturn(true);
 
-        assertThatThrownBy(() -> hotelService.addRoom(HOTEL_ID, request, MANAGER_ID))
-                .isInstanceOf(ResourceExistsException.class)
-                .hasMessageContaining("101");
+        assertThatThrownBy(() -> hotelService.addRoom(HOTEL_ID, request, MANAGER_ID)).isInstanceOf(
+                                                                                             ResourceExistsException.class)
+                                                                                     .hasMessageContaining("101");
 
         verify(roomRepository, never()).save(any());
     }
@@ -290,16 +294,45 @@ class HotelServiceTest {
 
     // ── getAvailableRooms ─────────────────────────────────────────────────────
 
+    private static final LocalDate CHECK_IN = LocalDate.of(2027, 1, 10);
+    private static final LocalDate CHECK_OUT = LocalDate.of(2027, 1, 15);
+
     @Test
-    void getAvailableRooms_shouldReturnOnlyAvailableRooms() {
+    void getAvailableRooms_shouldReturnRoomsAvailableForDates() {
+        roomDocument.setId(ROOM_ID);
         when(roomRepository.findByHotelIdAndAvailable(HOTEL_ID, true)).thenReturn(List.of(roomDocument));
+        when(bookingServiceClient.checkBulkAvailability(any())).thenReturn(Map.of(ROOM_ID, true));
         when(roomMapper.toResponse(roomDocument)).thenReturn(roomResponse);
 
-        List<RoomResponse> result = hotelService.getAvailableRooms(HOTEL_ID);
+        List<RoomResponse> result = hotelService.getAvailableRooms(HOTEL_ID, CHECK_IN, CHECK_OUT);
 
         assertThat(result).hasSize(1);
         verify(roomRepository).findByHotelIdAndAvailable(HOTEL_ID, true);
+        verify(bookingServiceClient).checkBulkAvailability(any());
         verify(roomRepository, never()).findByHotelId(anyString());
+    }
+
+    @Test
+    void getAvailableRooms_shouldExcludeBookedRooms() {
+        roomDocument.setId(ROOM_ID);
+        when(roomRepository.findByHotelIdAndAvailable(HOTEL_ID, true)).thenReturn(List.of(roomDocument));
+        // booking-service says the room is NOT available for those dates
+        when(bookingServiceClient.checkBulkAvailability(any())).thenReturn(Map.of(ROOM_ID, false));
+
+        List<RoomResponse> result = hotelService.getAvailableRooms(HOTEL_ID, CHECK_IN, CHECK_OUT);
+
+        assertThat(result).isEmpty();
+        verify(roomMapper, never()).toResponse(any());
+    }
+
+    @Test
+    void getAvailableRooms_noEnabledRooms_returnsEmptyWithoutFeignCall() {
+        when(roomRepository.findByHotelIdAndAvailable(HOTEL_ID, true)).thenReturn(List.of());
+
+        List<RoomResponse> result = hotelService.getAvailableRooms(HOTEL_ID, CHECK_IN, CHECK_OUT);
+
+        assertThat(result).isEmpty();
+        verify(bookingServiceClient, never()).checkBulkAvailability(any());
     }
 
     // ── updateRating ──────────────────────────────────────────────────────────
@@ -320,9 +353,9 @@ class HotelServiceTest {
     void updateRating_shouldThrowWhenHotelNotFound() {
         when(hotelRepository.findById(anyString())).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> hotelService.updateRating("ghost-id", 4.5, 10))
-                .isInstanceOf(ResourceNotFoundException.class)
-                .hasMessageContaining("ghost-id");
+        assertThatThrownBy(() -> hotelService.updateRating("ghost-id", 4.5, 10)).isInstanceOf(
+                                                                                        ResourceNotFoundException.class)
+                                                                                .hasMessageContaining("ghost-id");
 
         verify(hotelRepository, never()).save(any());
     }

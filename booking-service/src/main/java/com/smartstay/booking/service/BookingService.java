@@ -2,6 +2,7 @@ package com.smartstay.booking.service;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import org.springframework.data.domain.Page;
@@ -32,6 +33,15 @@ public interface BookingService {
     boolean checkRoomAvailability(String roomId,
                                   LocalDate checkIn,
                                   LocalDate checkOut);
+
+    /**
+     * Bulk availability check for multiple rooms over the same date range.
+     * Returns a map of roomId → available (true/false).
+     * Used by hotel-service to power the availability search endpoint.
+     */
+    Map<String, Boolean> checkBulkAvailability(List<String> roomIds,
+                                               LocalDate checkIn,
+                                               LocalDate checkOut);
 
     boolean guestIsStayed(UUID guestId,
                           String hotelId);

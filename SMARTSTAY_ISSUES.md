@@ -169,151 +169,130 @@
 
 ---
 
-### Issue 7 — `getAvailableRooms` is a stub (wrong results) `[ ]`
+### Issue 7 — `getAvailableRooms` is a stub (wrong results) `[x]`
 
-**File:** `hotel-service/src/main/java/com/smartstay/hotel/service/HotelServiceImpl.java:getAvailableRooms`
+**Completed: 2026-11-13**
 
-**What's wrong:**
-```java
-// TODO: wire Booking Service in Phase 4 to check real-time availability
-return roomRepository.findByHotelIdAndAvailable(hotelId, true)...
-```
-`available` is a static flag (is the room "enabled by manager"). It is never set to
-`false` when a booking is made. The `/api/v1/hotels/{hotelId}/availability` endpoint
-therefore always shows all enabled rooms as "available" regardless of existing bookings.
-The frontend's "available rooms" section on the hotel detail page is misleading.
+**Approach used:** Bulk Feign call from hotel-service to booking-service.
 
-**Why it matters:**
-Guests see rooms as available, pick them, and then get a 409 Conflict when they try to
-book — confusing UX. The check-then-book UI is broken.
+**booking-service (new endpoint):**
+- New DTO `BulkAvailabilityRequest(roomIds, checkIn, checkOut)` 
+- New `BookingService.checkBulkAvailability` interface method + impl (delegates to per-room `existsOverlappingBooking`)
+- New endpoint `POST /api/v1/bookings/bulk-availability` — returns `Map<roomId, Boolean>`
 
-**Fix:**
-The availability endpoint needs date params (`checkIn`, `checkOut`) and must call
-booking-service for each room:
-```
-GET /api/v1/hotels/{hotelId}/availability?checkIn=2027-01-01&checkOut=2027-01-05
-```
-For each room in the hotel where `available=true`, call:
-`booking-service GET /api/v1/bookings/availability?roomId=&checkIn=&checkOut=`
-Filter to only rooms that return `{ available: true }`.
+**hotel-service (wired up):**
+- Added `spring-cloud-starter-openfeign` dependency
+- Added `@EnableFeignClients` to `HotelServiceApplication`
+- New `client/BookingServiceClient` Feign interface + `client/dto/BulkAvailabilityRequest`
+- `HotelService.getAvailableRooms` now requires `checkIn` / `checkOut` params
+- `HotelServiceImpl`: fetches enabled rooms → one Feign bulk-availability call → filters to available-only
+- Controller endpoint now: `GET /{hotelId}/availability?checkIn=YYYY-MM-DD&checkOut=YYYY-MM-DD`
+- `application.yml`: `feign.booking-service.url` with `BOOKING_SERVICE_URL` env fallback
+- `docker-compose.yml`: added `BOOKING_SERVICE_URL: http://booking-service:8083` to hotel-service
 
-Because this is N+1 calls, a better approach: add a bulk availability check endpoint
-to booking-service that accepts a list of roomIds + date range and returns a map of
-`roomId → available`. One Feign call instead of N.
+**Tests:**
+- `BookingServiceImplTest` — `checkBulkAvailability_mixedAvailability_returnsCorrectMap`, `checkBulkAvailability_emptyList_returnsEmptyMap` (26 tests, 0 failures ✅)
+- `BookingControllerIT` — `checkBulkAvailability_noBookings_returnsAllAvailable`, `checkBulkAvailability_oneRoomBooked_returnsCorrectMap`
+- `HotelServiceTest` — replaced old stub test with 3 real tests: available rooms returned, booked rooms excluded, no Feign call when no enabled rooms. Added missing `@Mock HotelEventProducer` (pre-existing gap). (21 tests, 0 failures ✅)
+- `HotelControllerIT` — added `@MockBean BookingServiceClient`, updated existing test + added 2 new tests (400 when no date params, rooms filtered by Feign response)
 
 ---
 
 ## 🟡 Medium — Functionality Gaps
 
-### Issue 8 — `PENDING` and `COMPLETED` statuses are unused dead code `[ ]`
+### Issue 8 — `PENDING` and `COMPLETED` statuses are unused dead code `[x]`
 
-**File:** `booking-service/src/main/java/com/smartstay/booking/enums/BookingStatus.java`
+**Completed: 2026-11-13**
 
-**What's wrong:**
-The enum has four values: `PENDING | CONFIRMED | CANCELLED | COMPLETED`.
-Bookings are always created as `CONFIRMED`. `PENDING` and `COMPLETED` are never set
-anywhere in the codebase.
+**Approach used:** Option A — removed both.
 
-**Options:**
-A) **Remove both** — simplest. Change to `CONFIRMED | CANCELLED`. Update tests.
+**Files changed:**
+- `booking-service/.../enums/BookingStatus.java` — now `CONFIRMED | CANCELLED` only
+- `frontend/src/types/index.ts` — `BookingStatus` type narrowed to `"CONFIRMED" | "CANCELLED"`
+- `frontend/src/components/booking/BookingCard.tsx`:
+  - Removed `PENDING`/`COMPLETED` entries from `STATUS_CLASS`
+  - `canCancel`: was `PENDING || CONFIRMED` → now just `CONFIRMED`
+  - `canReview`: was `status === "COMPLETED"` → now `status === "CONFIRMED" && checkOut <= today` (matches the backend `guestIsStayed` logic)
+- `frontend/src/components/manage/HotelBookingsModal.tsx` — removed dead `STATUS_CLASS` entries
 
-B) **Implement COMPLETED** — add a scheduled job (`@Scheduled`) in booking-service
-that runs nightly and sets all bookings with `checkOut < today` and `status = CONFIRMED`
-to `COMPLETED`. This makes the `guestIsStayed` check cleaner (status = COMPLETED
-instead of the current `status != CANCELLED AND checkOut <= today` derived logic).
+**No DB migration needed** — `status` column is plain `VARCHAR(20)`, no CHECK constraint.
 
-C) **Implement PENDING** — only if a payment step is planned. Bookings start as PENDING,
-a payment webhook/callback confirms them → CONFIRMED.
-
-Recommendation: do **A** now (remove both), keep code clean. Add COMPLETED back in
-if/when a payment phase is added.
+**Tests:** 26 tests, 0 failures ✅
 
 ---
 
-### Issue 9 — `ReviewDocument.verified` is always `false` `[ ]`
+### Issue 9 — `ReviewDocument.verified` is always `false` `[x]`
 
-**File:** `review-service/src/main/java/com/smartstay/review/service/ReviewServiceImpl.java:createReview`
+**Completed: 2026-11-13**
 
-**What's wrong:**
-```java
-final var review = ReviewDocument.builder()
-    .hotelId(request.hotelId())
-    .guestId(guestId.toString())
-    ...
-    // ← .verified() never set — defaults to false
-    .build();
-```
-The code already calls `bookingServiceClient.verifyStay(...)` and gates the review on
-`isStayed == true`. But it then forgets to stamp the document with `verified = true`.
-Every review in the system shows as unverified even when the stay was confirmed.
+**Fix:** Added `.verified(true)` to the `ReviewDocument` builder in `ReviewServiceImpl.createReview`.
+The stay is already confirmed before this point (the method throws `UnverifiedStayException` if not), so `true` is unconditional here rather than `verifyResponse.isStayed()` — cleaner and equally correct.
 
-**Fix (one line):**
-```java
-.verified(verifyResponse.isStayed())   // add this line to the builder chain
-```
+**Files changed:**
+- `review-service/.../service/ReviewServiceImpl.java` — one line added to builder chain
+
+**Tests:**
+- `ReviewServiceImplTest` — `createReview_savesCorrectGuestIdAndName` updated to assert `doc.isVerified()`; new `createReview_verifiedFlagIsSetToTrue` test added
+- 12 tests, 0 failures ✅
 
 ---
 
-### Issue 10 — Zustand auth state lost on page refresh → broken auth loop `[ ]`
+### Issue 10 — Zustand auth state lost on page refresh → broken auth loop `[x]`
 
-**File:** `frontend/src/lib/auth.ts` + `frontend/src/middleware.ts`
+**Completed: 2026-11-13**
 
-**What's wrong:**
-Tokens (`accessToken`, `refreshToken`) live only in Zustand memory. On page reload:
-1. The `smartstay_session` **cookie** survives (7-day expiry) → middleware allows
-   the user into protected routes (`/bookings`, `/manage`, `/admin`)
-2. Zustand resets → `accessToken = null` → every API call gets a 401
-3. Refresh interceptor has no `refreshToken` → calls `clearAuth()` (clears Zustand)
-   but does **NOT** call `clearSessionCookie()`
-4. Cookie still set → middleware keeps user on protected pages → broken loop with
-   failing API calls, no redirect to login
+**Root cause confirmed:** `clearAuth()` cleared Zustand but not the session cookie, so on page reload the broken-API-call loop had no escape.
 
-**Fix:**
-Add Zustand `persist` middleware to save `refreshToken` to `localStorage`:
-```ts
-import { persist } from "zustand/middleware";
+**Files changed:**
 
-export const useAuthStore = create<AuthState>()(
-  persist(
-    (set) => ({ ...stateAndActions }),
-    {
-      name: "smartstay-auth",
-      partialize: (s) => ({ refreshToken: s.refreshToken }), // only token, not accessToken
-    }
-  )
-);
-```
-On app mount (e.g., `layout.tsx`), check if a persisted `refreshToken` exists with no
-`accessToken` → silently call `/api/v1/auth/refresh` to get a new access token.
-Also: make `clearAuth()` call `clearSessionCookie()` internally so logout is complete.
+`frontend/src/lib/auth.ts`:
+- Added `persist` middleware (Zustand v5) — persists only `refreshToken` to `localStorage` key `smartstay-auth`
+- Moved `setSessionCookie` / `clearSessionCookie` helpers here (exported `setSessionCookie`)
+- `clearAuth()` now calls `clearSessionCookie()` internally — fixes the root cause
+
+`frontend/src/lib/hooks/useAuth.ts`:
+- Removed local cookie helpers (now imported from `auth.ts`)
+- `useLogout.onSettled` simplified to just `clearAuth()` (which handles the cookie)
+
+`frontend/src/components/AuthHydrator.tsx` (new):
+- Invisible `"use client"` component; runs once on mount via `useEffect`
+- Detects persisted `refreshToken` + no `accessToken` (= page reload scenario)
+- Silently calls `/api/v1/auth/refresh`, decodes the new JWT, re-populates store + cookie
+- On failure (expired refresh token): calls `clearAuth()` → clears cookie → middleware redirects to /login
+
+`frontend/src/components/providers.tsx`:
+- Mounts `<AuthHydrator/>` once at the top of the client tree
+
+**TypeScript:** `tsc --noEmit` — 0 errors ✅
 
 ---
 
-### Issue 11 — Chat session not bound to user identity `[ ]`
+### Issue 11 — Chat session not bound to user identity `[x]`
 
-**File:** `frontend/src/components/chat/ChatWidget.tsx:12-16`
-**File:** `ai-assistant-service/src/main/java/com/smartstay/ai/service/ChatAssistantServiceImpl.java`
+**Completed: 2026-11-13**
 
-**What's wrong:**
-The `sessionId` is a random UUID generated client-side in `sessionStorage`. The
-AI service stores and retrieves chat history purely by `sessionId` with no check
-that the requesting user owns that session.
+**Approach used:** Server-side namespacing — `safeSessionId = userId + ":" + sessionId`. Zero client changes.
 
-**Why it matters:**
-- A user on a shared/borrowed device inherits another user's full chat history
-- A curious user who finds another's session ID (e.g., from browser history or
-  a logged network request) can read or continue their private conversation
+**Files changed:**
 
-**Fix:**
-Server-side: prefix the session ID with the authenticated user's ID before using it
-as the memory key:
-```java
-// ChatAssistantServiceImpl.java
-String safeSessionId = userId + ":" + sessionId;
-// use safeSessionId for chatMemory.get() / advisor
-```
-The `userId` comes from the `X-User-Id` header (forwarded by the gateway). This
-guarantees session IDs are namespaced per user with zero client changes.
+`ai-assistant-service/.../service/ChatAssistantService.java`:
+- Added `userId` param to `chat()` and `getHistory()`
+
+`ai-assistant-service/.../service/ChatAssistantServiceImpl.java`:
+- Both methods build `safeSessionId = userId + ":" + sessionId`
+- `conversationId` on `MessageChatMemoryAdvisor` now uses `safeSessionId`
+- `chatMemory.get(safeSessionId)` in `getHistory`
+
+`ai-assistant-service/.../controller/AiController.java`:
+- Both endpoints read `@RequestHeader("X-User-Id")` and pass it to the service
+
+`ai-assistant-service/.../exception/GlobalExceptionHandler.java`:
+- Added `MissingRequestHeaderException` handler → returns 400 (was 500)
+
+**Tests:**
+- `ChatAssistantServiceImplTest` — all stubs updated to use namespaced key; added `getHistory_differentUserSameSessionId_usesDistinctKey` test that directly proves isolation (6 tests ✅)
+- `AiControllerIT` — stubs updated; added `chat_missingUserIdHeader_returns400` and `history_missingUserIdHeader_returns400` tests (12 tests ✅)
+- **Total: 18 tests, 0 failures ✅**
 
 ---
 
@@ -327,11 +306,11 @@ guarantees session IDs are namespaced per user with zero client changes.
 | 4 | Manager reads any hotel's bookings | `[x]` | 2026-11-12 |
 | 5 | Double-booking race condition | `[x]` | 2026-11-12 |
 | 6 | Hotel delete orphans bookings | `[x]` | 2026-11-12 |
-| 7 | getAvailableRooms is a stub | `[ ]` | — |
-| 8 | PENDING/COMPLETED dead code | `[ ]` | — |
-| 9 | verified field never set | `[ ]` | — |
-| 10 | Zustand not persisted on refresh | `[ ]` | — |
-| 11 | Chat session not user-bound | `[ ]` | — |
+| 7 | getAvailableRooms is a stub | `[x]` | 2026-11-13 |
+| 8 | PENDING/COMPLETED dead code | `[x]` | 2026-11-13 |
+| 9 | verified field never set | `[x]` | 2026-11-13 |
+| 10 | Zustand not persisted on refresh | `[x]` | 2026-11-13 |
+| 11 | Chat session not user-bound | `[x]` | 2026-11-13 |
 
 ---
 

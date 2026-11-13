@@ -6,8 +6,18 @@ import com.smartstay.ai.dto.MessageDto;
 
 public interface ChatAssistantService {
 
-    String chat(String sessionId,
+    /**
+     * @param userId    the authenticated user's ID (from X-User-Id header)
+     * @param sessionId the client-supplied session UUID (from sessionStorage)
+     */
+    String chat(String userId,
+                String sessionId,
                 String userMessage);
 
-    List<MessageDto> getHistory(String sessionId);
+    /**
+     * @param userId    the authenticated user's ID (from X-User-Id header)
+     * @param sessionId the client-supplied session UUID
+     */
+    List<MessageDto> getHistory(String userId,
+                                String sessionId);
 }

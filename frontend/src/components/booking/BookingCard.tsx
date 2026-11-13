@@ -22,10 +22,8 @@ import type { BookingResponse } from "@/types";
 
 // ── Status badge styles ───────────────────────────────────────────────────────
 const STATUS_CLASS: Record<BookingResponse["status"], string> = {
-    PENDING: "bg-yellow-100 text-yellow-700",
     CONFIRMED: "bg-green-100 text-green-700",
     CANCELLED: "bg-gray-100 text-gray-500",
-    COMPLETED: "bg-blue-100 text-blue-700",
 };
 
 interface BookingCardProps {
@@ -39,8 +37,9 @@ export function BookingCard({booking}: BookingCardProps) {
     const {data: hotel} = useHotel(booking.hotelId);
     const {mutate: cancel, isPending: cancelling} = useCancelBooking();
 
-    const canCancel = booking.status === "PENDING" || booking.status === "CONFIRMED";
-    const canReview = booking.status === "COMPLETED";
+    const canCancel = booking.status === "CONFIRMED";
+    // A guest can review once their stay has ended (checkout date is today or in the past)
+    const canReview = booking.status === "CONFIRMED" && new Date(booking.checkOut) <= new Date();
 
     const nights = Math.max(
         1,

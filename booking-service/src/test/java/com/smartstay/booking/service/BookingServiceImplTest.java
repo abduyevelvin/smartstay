@@ -18,6 +18,7 @@ import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -389,6 +390,32 @@ class BookingServiceImplTest {
         when(bookingRepository.existsOverlappingBooking(ROOM_ID, CHECK_IN, CHECK_OUT, CANCELLED)).thenReturn(true);
 
         assertThat(bookingService.checkRoomAvailability(ROOM_ID, CHECK_IN, CHECK_OUT)).isFalse();
+    }
+
+    // ── checkBulkAvailability ─────────────────────────────────────────────────
+
+    private static final String ROOM_ID_2 = "room-2";
+
+    @Test
+    void checkBulkAvailability_mixedAvailability_returnsCorrectMap() {
+        // Single DB query returns only the booked room
+        when(bookingRepository.findBookedRoomIds(List.of(ROOM_ID, ROOM_ID_2), CHECK_IN, CHECK_OUT,
+                CANCELLED)).thenReturn(Set.of(ROOM_ID_2));
+
+        var result = bookingService.checkBulkAvailability(List.of(ROOM_ID, ROOM_ID_2), CHECK_IN, CHECK_OUT);
+
+        assertThat(result).containsEntry(ROOM_ID, true)
+                          .containsEntry(ROOM_ID_2, false);
+        // verify only one DB call, not two
+        verify(bookingRepository, never()).existsOverlappingBooking(any(), any(), any(), any());
+    }
+
+    @Test
+    void checkBulkAvailability_emptyList_returnsEmptyMapWithoutDbCall() {
+        var result = bookingService.checkBulkAvailability(List.of(), CHECK_IN, CHECK_OUT);
+
+        assertThat(result).isEmpty();
+        verify(bookingRepository, never()).findBookedRoomIds(any(), any(), any(), any());
     }
 
     // ── guestIsStayed ─────────────────────────────────────────────────────────

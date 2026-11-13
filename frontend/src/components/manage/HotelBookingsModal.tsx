@@ -5,10 +5,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { useHotelBookings } from "@/lib/hooks/useBookings";
 
 const STATUS_CLASS: Record<string, string> = {
-    PENDING: "bg-yellow-100 text-yellow-700",
     CONFIRMED: "bg-green-100 text-green-700",
     CANCELLED: "bg-gray-100 text-gray-500",
-    COMPLETED: "bg-blue-100 text-blue-700",
 };
 
 interface HotelBookingsModalProps {

@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -42,17 +43,19 @@ public class AiController {
     // POST /api/v1/ai/chat
     // Body: { "sessionId": "abc123", "message": "Which hotels have a pool?" }
     @PostMapping("/chat")
-    public ResponseEntity<Map<String, String>> chat(@Valid @RequestBody final ChatRequest request) {
-        log.info("POST /chat — sessionId: {}", request.sessionId());
-        final String reply = chatAssistantService.chat(request.sessionId(), request.message());
+    public ResponseEntity<Map<String, String>> chat(@RequestHeader("X-User-Id") final String userId,
+                                                    @Valid @RequestBody final ChatRequest request) {
+        log.info("POST /chat — userId: {}, sessionId: {}", userId, request.sessionId());
+        final String reply = chatAssistantService.chat(userId, request.sessionId(), request.message());
         return ResponseEntity.ok(Map.of("reply", reply, "sessionId", request.sessionId()));
     }
 
     // GET /api/v1/ai/chat/{sessionId}/history
     @GetMapping("/chat/{sessionId}/history")
-    public ResponseEntity<List<MessageDto>> history(@PathVariable final String sessionId) {
-        log.info("GET /chat/{}/history", sessionId);
-        final List<MessageDto> history = chatAssistantService.getHistory(sessionId);
+    public ResponseEntity<List<MessageDto>> history(@RequestHeader("X-User-Id") final String userId,
+                                                    @PathVariable final String sessionId) {
+        log.info("GET /chat/{}/history — userId: {}", sessionId, userId);
+        final List<MessageDto> history = chatAssistantService.getHistory(userId, sessionId);
         return ResponseEntity.ok(history);
     }
 

@@ -66,6 +66,7 @@ public class ReviewServiceImpl implements ReviewService {
                                          .title(request.title())
                                          .body(request.body())
                                          .stayDate(request.stayDate())
+                                         .verified(true)
                                          .build();
 
         final var saved = reviewRepository.save(review);

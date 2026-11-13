@@ -68,9 +68,11 @@ class AiControllerIT {
 
     @Test
     void chat_validRequest_returns200WithReplyAndSessionId() throws Exception {
-        when(chatAssistantService.chat("session-abc", "find me a hotel")).thenReturn("The Marriott is a great choice!");
+        when(chatAssistantService.chat("user-1", "session-abc", "find me a hotel")).thenReturn(
+                "The Marriott is a great choice!");
 
-        mockMvc.perform(post("/api/v1/ai/chat").contentType(MediaType.APPLICATION_JSON)
+        mockMvc.perform(post("/api/v1/ai/chat").header("X-User-Id", "user-1")
+                                               .contentType(MediaType.APPLICATION_JSON)
                                                .content("""
                                                        {"sessionId":"session-abc","message":"find me a hotel"}
                                                        """))
@@ -80,8 +82,20 @@ class AiControllerIT {
     }
 
     @Test
+    void chat_missingUserIdHeader_returns400() throws Exception {
+        mockMvc.perform(post("/api/v1/ai/chat")
+                       // no X-User-Id header
+                       .contentType(MediaType.APPLICATION_JSON)
+                       .content("""
+                               {"sessionId":"session-abc","message":"find me a hotel"}
+                               """))
+               .andExpect(status().isBadRequest());
+    }
+
+    @Test
     void chat_blankSessionId_returns400() throws Exception {
-        mockMvc.perform(post("/api/v1/ai/chat").contentType(MediaType.APPLICATION_JSON)
+        mockMvc.perform(post("/api/v1/ai/chat").header("X-User-Id", "user-1")
+                                               .contentType(MediaType.APPLICATION_JSON)
                                                .content("""
                                                        {"sessionId":"","message":"find me a hotel"}
                                                        """))
@@ -91,7 +105,8 @@ class AiControllerIT {
 
     @Test
     void chat_blankMessage_returns400() throws Exception {
-        mockMvc.perform(post("/api/v1/ai/chat").contentType(MediaType.APPLICATION_JSON)
+        mockMvc.perform(post("/api/v1/ai/chat").header("X-User-Id", "user-1")
+                                               .contentType(MediaType.APPLICATION_JSON)
                                                .content("""
                                                        {"sessionId":"session-abc","message":""}
                                                        """))
@@ -102,11 +117,11 @@ class AiControllerIT {
 
     @Test
     void history_existingSession_returns200WithMessages() throws Exception {
-        when(chatAssistantService.getHistory("session-abc")).thenReturn(
+        when(chatAssistantService.getHistory("user-1", "session-abc")).thenReturn(
                 List.of(new MessageDto("user", "find me a hotel"),
                         new MessageDto("assistant", "The Marriott is a great choice!")));
 
-        mockMvc.perform(get("/api/v1/ai/chat/session-abc/history"))
+        mockMvc.perform(get("/api/v1/ai/chat/session-abc/history").header("X-User-Id", "user-1"))
                .andExpect(status().isOk())
                .andExpect(jsonPath("$").isArray())
                .andExpect(jsonPath("$.length()").value(2))
@@ -117,12 +132,19 @@ class AiControllerIT {
 
     @Test
     void history_unknownSession_returns200WithEmptyList() throws Exception {
-        when(chatAssistantService.getHistory("unknown")).thenReturn(List.of());
+        when(chatAssistantService.getHistory("user-1", "unknown")).thenReturn(List.of());
 
-        mockMvc.perform(get("/api/v1/ai/chat/unknown/history"))
+        mockMvc.perform(get("/api/v1/ai/chat/unknown/history").header("X-User-Id", "user-1"))
                .andExpect(status().isOk())
                .andExpect(jsonPath("$").isArray())
                .andExpect(jsonPath("$.length()").value(0));
+    }
+
+    @Test
+    void history_missingUserIdHeader_returns400() throws Exception {
+        mockMvc.perform(get("/api/v1/ai/chat/session-abc/history"))
+               // no X-User-Id header
+               .andExpect(status().isBadRequest());
     }
 
     // ── POST /hotels/{hotelId}/summary ────────────────────────────────────────

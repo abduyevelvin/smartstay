@@ -1,7 +1,11 @@
 # ── Docker profile — overrides application.yml when SPRING_PROFILES_ACTIVE=docker ──
-# Hostname matches the docker-compose.yml service name for mongodb.
+# Hostnames match the docker-compose.yml service names.
 
 spring:
   data:
     mongodb:
       host: mongodb          # docker-compose service name
+
+feign:
+  booking-service:
+    url: http://booking-service:8083

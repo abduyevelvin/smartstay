@@ -26,9 +26,13 @@ public class ChatAssistantServiceImpl implements ChatAssistantService {
     private final ChatMemory chatMemory;
 
     @Override
-    public String chat(final String sessionId,
+    public String chat(final String userId,
+                       final String sessionId,
                        final String userMessage) {
-        log.info("Chat message received — sessionId: {}, message: {}", sessionId, userMessage);
+        // Namespace the memory key so a user can never access another user's history,
+        // even if they somehow obtain the other user's sessionId.
+        final String safeSessionId = userId + ":" + sessionId;
+        log.info("Chat message received — userId: {}, sessionId: {}", userId, sessionId);
 
         final var relevantDocs = vectorStore.similaritySearch(SearchRequest.builder()
                                                                            .query(userMessage)
@@ -36,12 +40,12 @@ public class ChatAssistantServiceImpl implements ChatAssistantService {
                                                                            .build());
 
         if (relevantDocs == null || relevantDocs.isEmpty()) {
-            log.warn("No relevant hotel context found for sessionId: {}, message: {}", sessionId, userMessage);
+            log.warn("No relevant hotel context found for userId: {}, sessionId: {}", userId, sessionId);
             return "I couldn't find any hotels matching your request. "
                     + "Please try different search criteria or check back later.";
         }
 
-        log.debug("Retrieved {} relevant hotel documents for sessionId: {}", relevantDocs.size(), sessionId);
+        log.debug("Retrieved {} relevant hotel documents for safeSessionId: {}", relevantDocs.size(), safeSessionId);
 
         final var context = relevantDocs.stream()
                                         .map(Document::getText)
@@ -51,7 +55,7 @@ public class ChatAssistantServiceImpl implements ChatAssistantService {
         // maxMessages is configured on MessageWindowChatMemory bean in AiConfig
         final var reply = chatClient.prompt()
                                     .advisors(MessageChatMemoryAdvisor.builder(chatMemory)
-                                                                      .conversationId(sessionId)
+                                                                      .conversationId(safeSessionId)
                                                                       .build())
                                     .user(u -> u.text("""
                                                         Context from our hotel database:
@@ -64,15 +68,17 @@ public class ChatAssistantServiceImpl implements ChatAssistantService {
                                     .call()
                                     .content();
 
-        log.info("Chat reply generated for sessionId: {}", sessionId);
+        log.info("Chat reply generated for userId: {}, sessionId: {}", userId, sessionId);
         return reply;
     }
 
     @Override
-    public List<MessageDto> getHistory(final String sessionId) {
-        log.debug("Retrieving chat history for sessionId: {}", sessionId);
+    public List<MessageDto> getHistory(final String userId,
+                                       final String sessionId) {
+        final String safeSessionId = userId + ":" + sessionId;
+        log.debug("Retrieving chat history for userId: {}, sessionId: {}", userId, sessionId);
 
-        final var messages = chatMemory.get(sessionId);  // returns all stored messages
+        final var messages = chatMemory.get(safeSessionId);  // namespaced key
 
         final var history = messages.stream()
                                     .filter(m -> m.getMessageType()
@@ -82,7 +88,7 @@ public class ChatAssistantServiceImpl implements ChatAssistantService {
                                             m.getText()))
                                     .collect(Collectors.toList());
 
-        log.debug("Returning {} messages for sessionId: {}", history.size(), sessionId);
+        log.debug("Returning {} messages for userId: {}, sessionId: {}", history.size(), userId, sessionId);
         return history;
     }
 }

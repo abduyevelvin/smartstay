@@ -1,8 +1,10 @@
 package com.smartstay.booking.repository;
 
 import java.time.LocalDate;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import org.springframework.data.domain.Page;
@@ -60,6 +62,25 @@ public interface BookingRepository extends JpaRepository<BookingEntity, UUID> {
                                                  @Param("checkIn") LocalDate checkIn,
                                                  @Param("checkOut") LocalDate checkOut,
                                                  @Param("cancelled") BookingStatus cancelled);
+
+    /**
+     * Returns the subset of {@code roomIds} that have at least one non-cancelled
+     * booking overlapping [checkIn, checkOut). One query for any number of rooms.
+     * Used by the bulk-availability endpoint so hotel-service pays one DB round-trip
+     * instead of N.
+     */
+    @Query("""
+            SELECT DISTINCT b.roomId
+            FROM BookingEntity b
+            WHERE b.roomId IN :roomIds
+              AND b.status <> :cancelled
+              AND b.checkIn  < :checkOut
+              AND b.checkOut > :checkIn
+            """)
+    Set<String> findBookedRoomIds(@Param("roomIds") Collection<String> roomIds,
+                                  @Param("checkIn") LocalDate checkIn,
+                                  @Param("checkOut") LocalDate checkOut,
+                                  @Param("cancelled") BookingStatus cancelled);
 
     List<BookingEntity> findByHotelIdAndStatusNot(String hotelId,
                                                   BookingStatus status);

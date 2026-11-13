@@ -1,11 +1,15 @@
 package com.smartstay.hotel.service;
 
+import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 
+import com.smartstay.hotel.client.BookingServiceClient;
+import com.smartstay.hotel.client.dto.BulkAvailabilityRequest;
 import com.smartstay.hotel.dto.CreateHotelRequest;
 import com.smartstay.hotel.dto.CreateRoomRequest;
 import com.smartstay.hotel.dto.HotelResponse;
@@ -34,6 +38,7 @@ public class HotelServiceImpl implements HotelService {
     private final HotelMapper hotelMapper;
     private final RoomMapper roomMapper;
     private final HotelEventProducer hotelEventProducer;
+    private final BookingServiceClient bookingServiceClient;
 
     @Override
     public HotelResponse createHotel(final CreateHotelRequest request,
@@ -167,14 +172,26 @@ public class HotelServiceImpl implements HotelService {
     }
 
     @Override
-    public List<RoomResponse> getAvailableRooms(final String hotelId) {
-        log.debug("Fetching available rooms — hotelId={}", hotelId);
+    public List<RoomResponse> getAvailableRooms(final String hotelId,
+                                                final LocalDate checkIn,
+                                                final LocalDate checkOut) {
+        log.debug("Fetching available rooms — hotelId={}, checkIn={}, checkOut={}", hotelId, checkIn, checkOut);
 
-        // TODO: wire Booking Service in Phase 4 to check real-time availability
-        return roomRepository.findByHotelIdAndAvailable(hotelId, true)
-                             .stream()
-                             .map(roomMapper::toResponse)
-                             .toList();
+        final var enabledRooms = roomRepository.findByHotelIdAndAvailable(hotelId, true);
+        if (enabledRooms.isEmpty()) {
+            return List.of();
+        }
+
+        final var roomIds = enabledRooms.stream()
+                                        .map(r -> r.getId())
+                                        .toList();
+        final Map<String, Boolean> availability = bookingServiceClient.checkBulkAvailability(
+                new BulkAvailabilityRequest(roomIds, checkIn, checkOut));
+
+        return enabledRooms.stream()
+                           .filter(r -> Boolean.TRUE.equals(availability.get(r.getId())))
+                           .map(roomMapper::toResponse)
+                           .toList();
     }
 
     @Override

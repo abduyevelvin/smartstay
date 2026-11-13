@@ -1,5 +1,6 @@
 package com.smartstay.hotel.service;
 
+import java.time.LocalDate;
 import java.util.List;
 
 import org.springframework.data.domain.Page;
@@ -39,11 +40,15 @@ public interface HotelService {
 
     List<RoomResponse> getRoomsByHotel(String hotelId);
 
-    List<RoomResponse> getAvailableRooms(String hotelId);
+    List<RoomResponse> getAvailableRooms(String hotelId,
+                                         LocalDate checkIn,
+                                         LocalDate checkOut);
 
     /**
      * Internal — called by review-service via Feign after a review is analyzed
      * to update the hotel's cached averageRating and reviewCount.
      */
-    void updateRating(String hotelId, double averageRating, int reviewCount);
+    void updateRating(String hotelId,
+                      double averageRating,
+                      int reviewCount);
 }

@@ -65,6 +65,11 @@ class ChatAssistantServiceImplTest {
                  .thenReturn(callSpec);
     }
 
+    private static final String USER_ID = "user-42";
+    private static final String SESSION_ID = "session-1";
+    // The safe key the service builds internally
+    private static final String SAFE_KEY = USER_ID + ":" + SESSION_ID;
+
     // ── chat ─────────────────────────────────────────────────────────────────
 
     @Test
@@ -76,10 +81,11 @@ class ChatAssistantServiceImplTest {
         when(vectorStore.similaritySearch((SearchRequest) any())).thenReturn(List.of(doc));
         when(callSpec.content()).thenReturn("The Hilton is a great choice!");
 
-        String result = chatAssistantService.chat("session-1", "find me a hotel");
+        String result = chatAssistantService.chat(USER_ID, SESSION_ID, "find me a hotel");
 
         assertThat(result).isEqualTo("The Hilton is a great choice!");
         verify(vectorStore).similaritySearch((SearchRequest) any());
+        // The advisor must have been called with the namespaced key
         verify(requestSpec).advisors(any(Advisor.class));
     }
 
@@ -87,7 +93,7 @@ class ChatAssistantServiceImplTest {
     void chat_whenNoDocs_returnsFallbackWithoutCallingLlm() {
         when(vectorStore.similaritySearch((SearchRequest) any())).thenReturn(List.of());
 
-        String result = chatAssistantService.chat("session-1", "anything");
+        String result = chatAssistantService.chat(USER_ID, SESSION_ID, "anything");
 
         assertThat(result).contains("couldn't find any hotels");
         verifyNoInteractions(chatClient);
@@ -97,10 +103,10 @@ class ChatAssistantServiceImplTest {
 
     @Test
     void getHistory_mapsUserAndAssistantMessages() {
-        when(chatMemory.get("session-1")).thenReturn(
-                List.of(new UserMessage("hello"), new AssistantMessage("hi there")));
+        // chatMemory is keyed by the namespaced safeSessionId
+        when(chatMemory.get(SAFE_KEY)).thenReturn(List.of(new UserMessage("hello"), new AssistantMessage("hi there")));
 
-        List<MessageDto> history = chatAssistantService.getHistory("session-1");
+        List<MessageDto> history = chatAssistantService.getHistory(USER_ID, SESSION_ID);
 
         assertThat(history).hasSize(2);
         assertThat(history.get(0)
@@ -115,11 +121,11 @@ class ChatAssistantServiceImplTest {
 
     @Test
     void getHistory_filtersOutSystemMessages() {
-        when(chatMemory.get("session-1")).thenReturn(
+        when(chatMemory.get(SAFE_KEY)).thenReturn(
                 List.of(new SystemMessage("You are a hotel assistant"), new UserMessage("hello"),
                         new AssistantMessage("hi!")));
 
-        List<MessageDto> history = chatAssistantService.getHistory("session-1");
+        List<MessageDto> history = chatAssistantService.getHistory(USER_ID, SESSION_ID);
 
         assertThat(history).hasSize(2);
         assertThat(history).noneMatch(m -> m.role()
@@ -128,10 +134,24 @@ class ChatAssistantServiceImplTest {
 
     @Test
     void getHistory_emptySession_returnsEmptyList() {
-        when(chatMemory.get("unknown-session")).thenReturn(List.of());
+        when(chatMemory.get(SAFE_KEY)).thenReturn(List.of());
 
-        List<MessageDto> history = chatAssistantService.getHistory("unknown-session");
+        List<MessageDto> history = chatAssistantService.getHistory(USER_ID, SESSION_ID);
 
         assertThat(history).isEmpty();
+    }
+
+    @Test
+    void getHistory_differentUserSameSessionId_usesDistinctKey() {
+        // Two users sharing the same client-side sessionId must get different memory keys
+        String otherSafeKey = "other-user:" + SESSION_ID;
+        when(chatMemory.get(SAFE_KEY)).thenReturn(List.of(new UserMessage("private message")));
+        when(chatMemory.get(otherSafeKey)).thenReturn(List.of());
+
+        List<MessageDto> userHistory = chatAssistantService.getHistory(USER_ID, SESSION_ID);
+        List<MessageDto> otherHistory = chatAssistantService.getHistory("other-user", SESSION_ID);
+
+        assertThat(userHistory).hasSize(1);
+        assertThat(otherHistory).isEmpty();
     }
 }

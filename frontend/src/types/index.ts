@@ -118,7 +118,7 @@ export interface HotelSearchParams {
 // ─────────────────────────────────────────────────────────────
 // Booking
 // ─────────────────────────────────────────────────────────────
-export type BookingStatus = "PENDING" | "CONFIRMED" | "CANCELLED" | "COMPLETED";
+export type BookingStatus = "CONFIRMED" | "CANCELLED";
 
 export interface BookingResponse {
     id: string;

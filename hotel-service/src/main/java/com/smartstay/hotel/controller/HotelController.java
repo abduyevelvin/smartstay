@@ -1,11 +1,13 @@
 package com.smartstay.hotel.controller;
 
+import java.time.LocalDate;
 import java.util.List;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -128,7 +130,12 @@ public class HotelController {
     }
 
     @GetMapping("/{hotelId}/availability")
-    public ResponseEntity<List<RoomResponse>> getAvailableRooms(@PathVariable String hotelId) {
-        return ResponseEntity.ok(hotelService.getAvailableRooms(hotelId));
+    public ResponseEntity<List<RoomResponse>> getAvailableRooms(@PathVariable String hotelId,
+                                                                @RequestParam @DateTimeFormat(
+                                                                        iso = DateTimeFormat.ISO.DATE) LocalDate checkIn,
+                                                                @RequestParam @DateTimeFormat(
+                                                                        iso = DateTimeFormat.ISO.DATE) LocalDate checkOut) {
+
+        return ResponseEntity.ok(hotelService.getAvailableRooms(hotelId, checkIn, checkOut));
     }
 }
